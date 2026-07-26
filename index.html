@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Where There's Light — Hand-drawn townscapes by Laurita</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  /* Home-specific */
+  .hero{padding:clamp(56px,9vw,120px) 0 clamp(40px,5vw,64px);text-align:center;}
+  .hero .eyebrow{display:block;margin-bottom:22px;}
+  .hero h1{max-width:16ch;margin:0 auto .34em;}
+  .hero h1 em{font-style:italic;color:var(--gold);}
+  .hero .lede{max-width:54ch;margin:0 auto;}
+  .hero .scroll-cue{margin-top:40px;font-size:.74rem;letter-spacing:.24em;text-transform:uppercase;color:var(--sage);}
+  .welcome{background:var(--paper-2);border-block:1px solid var(--mist);}
+  .welcome .wrap{padding-block:clamp(48px,7vw,84px);text-align:center;}
+  .welcome p{max-width:64ch;margin:0 auto;font-family:var(--serif);font-size:clamp(1.1rem,1.8vw,1.35rem);line-height:1.6;color:var(--ink-soft);}
+
+  .collection{padding-bottom:clamp(60px,9vw,120px);}
+  .sec-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:40px;border-bottom:1px solid color-mix(in srgb,var(--green) 16%,transparent);padding-bottom:18px;}
+  .sec-head .count{font-size:.8rem;letter-spacing:.18em;text-transform:uppercase;color:var(--sage);}
+
+  .gallery{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,4vw,60px);}
+  .piece{grid-column:span 1;}
+  .piece.feature{grid-column:1 / -1;}
+  .piece a{display:block;}
+  .mat{background:#fff;padding:clamp(18px,2.4vw,40px);border:1px solid var(--mist);box-shadow:0 1px 0 rgba(0,0,0,.02);transition:box-shadow .35s, transform .35s;overflow:hidden;}
+  .mat .imgwrap{overflow:hidden;}
+  .mat img{width:100%;height:auto;transition:transform .9s cubic-bezier(.2,0,.1,1);}
+  .piece a:hover .mat{box-shadow:0 26px 50px -28px rgba(45,86,68,.4);transform:translateY(-4px);}
+  .piece a:hover .mat img{transform:scale(1.035);}
+  .piece.feature .mat{padding:clamp(26px,4vw,68px);}
+
+  .cap{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding-top:20px;}
+  .cap .ttl{font-family:var(--serif);font-size:1.7rem;color:var(--green);line-height:1.05;}
+  .cap .place{font-size:.82rem;letter-spacing:.06em;color:var(--ink-soft);margin-top:4px;}
+  .cap .pricing{text-align:right;flex:none;}
+  .cap .from{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--sage);}
+  .cap .amt{font-family:var(--serif);font-size:1.35rem;color:var(--gold);}
+  .cap .sold{font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--sage);border:1px solid var(--sage);border-radius:999px;padding:4px 12px;}
+  .piece.feature .cap .ttl{font-size:2.4rem;}
+  @media(max-width:720px){.gallery{grid-template-columns:1fr;}.piece.feature{grid-column:auto;}}
+
+  /* About band */
+  .about{background:var(--paper-2);border-block:1px solid var(--mist);}
+  .about .wrap{display:grid;grid-template-columns:1fr 1.1fr;gap:clamp(36px,6vw,90px);align-items:center;padding-block:clamp(60px,9vw,120px);}
+  .about .portrait{max-width:460px;margin:0 auto;width:100%;background:#fff;padding:14px;border:1px solid var(--mist);box-shadow:0 26px 50px -34px rgba(45,54,68,.5);}
+  .about .portrait img{width:100%;height:auto;display:block;}
+  .about h2{margin-bottom:.4em;}
+  .about p{max-width:46ch;color:var(--ink-soft);}
+  .about .sign{font-family:var(--serif);font-style:italic;font-size:1.5rem;color:var(--gold);margin-top:18px;}
+  @media(max-width:720px){.about .wrap{grid-template-columns:1fr;}.about .portrait{max-width:340px;}}
+
+  /* Ways to own */
+  .ways{padding-block:clamp(60px,9vw,120px);}
+  .ways .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(20px,2.4vw,36px);margin-top:46px;}
+  .way{border:1px solid var(--mist);background:#fff;padding:clamp(26px,3vw,40px);display:flex;flex-direction:column;gap:14px;}
+  .way .n{font-family:var(--serif);font-size:1.1rem;color:var(--sage);}
+  .way h3{color:var(--green);}
+  .way p{color:var(--ink-soft);font-size:.94rem;flex:1;}
+  .way .price{font-family:var(--serif);font-size:1.3rem;color:var(--gold);}
+  .ways .footnote{margin-top:34px;text-align:center;color:var(--ink-soft);font-size:.92rem;}
+  .ways .footnote a{color:var(--green);text-decoration:underline;text-underline-offset:3px;}
+  @media(max-width:720px){.ways .grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Where There's Light home">
+      <img class="logo" src="assets/logo.svg" alt="Where There's Light">
+      <span class="tagline">Townscapes by Laurita</span>
+    </a>
+    <nav class="nav">
+      <div class="nav-item"><a class="nav-link" href="townscapes.html">The Collection <span class="caret">▾</span></a>
+        <div class="submenu"><div class="submenu-inner">
+          <a href="townscapes.html">Townscapes</a>
+          <a href="amelias-house.html">Amelia's House</a>
+          <a href="gift-tags.html">Gift Tags</a>
+        </div></div>
+      </div>
+      <a class="nav-link" href="#about">About</a>
+      <a class="nav-link" href="upcoming.html">Upcoming</a>
+      <button class="cart-btn" onclick="Cart.open()">Cart <span class="count">(<span data-cart-count>0</span>)</span></button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero wrap">
+    <span class="eyebrow">Original pen &amp; ink · Fine-art prints · Commissions</span>
+    <h1>Where there's light, there's a town worth <em>remembering.</em></h1>
+    <p class="lede">Laurita draws the places people love — every gable, fountain and garden held inside a dome of light, one patient pen-stroke at a time.</p>
+    <div class="scroll-cue">Meet Laurita ↓</div>
+  </section>
+
+  <section class="welcome">
+    <div class="wrap">
+      <p>Welcome to Where There's Light! We are passionate about visual storytelling, but we are also passionate about being a part of your story. Get comfortable, linger a while. Our flagship range is a collection of townscapes in pen on high quality Fabriano paper and we are always on the lookout for more beautiful places to capture. Amelia's House is a collection of miniature interior illustrations. We also offer a range of multi-purpose gift tags. We hear they're great for keeping tabs on shower- and christmas gifts. We hope you feel at home here, where there's light.</p>
+    </div>
+  </section>
+
+  <section class="about" id="about">
+    <div class="wrap">
+      <div class="portrait"><img src="assets/laurita-photo.jpg" alt="Laurita le Roux holding one of her townscape drawings"></div>
+      <div>
+        <span class="eyebrow">The hand behind the work</span>
+        <h2 style="margin-top:14px">Laurita le Roux</h2>
+        <p>Laurita le Roux is the artist behind Where There's Light. She lives in Bellville with her very fetching husband and two energetic boys. By day she works as a video editor, by night she illustrates and explores visual storytelling in a more tactile way.</p>
+        <p>What started as an antidote to anxiety developed into a means to capture and collect the <em>genius loci</em> of places that carry significance.</p>
+        <p>Her work explores the contrast between man-made architecture and the organic, fluid structure of nature that resides alongside it — the interconnected creative urge between God and His creation which makes up the places where we live.</p>
+        <p>She has worked professionally in ceramics and stage design, but the therapeutic rhythm of line remains her favoured form of expression.</p>
+        <div class="sign">— Laurita</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ways wrap" id="ways">
+    <div class="sec-head">
+      <h2>Three ways to own a piece</h2>
+      <span class="count">Made &amp; shipped from the Western Cape</span>
+    </div>
+    <div class="grid">
+      <div class="way">
+        <span class="n">01</span>
+        <h3>Original drawings</h3>
+        <p>The one and only — ink on 300gsm cotton paper, signed and dated by hand. When it's gone, it's gone.</p>
+        <span class="price">from R&nbsp;8&nbsp;600</span>
+      </div>
+      <div class="way">
+        <span class="n">02</span>
+        <h3>Fine-art prints</h3>
+        <p>Archival giclée prints in A4, A3 and A2 — open and limited editions, with a framed option in oak and museum glass.</p>
+        <span class="price">from R&nbsp;690</span>
+      </div>
+      <div class="way" id="commission">
+        <span class="n">03</span>
+        <h3>Commissions</h3>
+        <p>Your town, your home, your favourite corner — drawn to order in the same hand. Tell Laurita the place and the story.</p>
+        <span class="price">from R&nbsp;9&nbsp;500</span>
+      </div>
+    </div>
+    <p class="footnote">Looking for something smaller? Greeting cards are <strong>R&nbsp;65</strong> each, or a set of five for <strong>R&nbsp;280</strong>. <a href="townscapes.html">Browse the collection →</a></p>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-col">
+        <img class="foot-logo" src="assets/logo.svg" alt="Where There's Light">
+        <p>Hand-drawn townscapes and gardens by Laurita. Originals, fine-art prints and commissions — made in the Western Cape, shipped worldwide.</p>
+      </div>
+      <div class="foot-col">
+        <h4 style="font-size:1.1rem">Shop</h4>
+        <a href="townscapes.html">The Collection</a>
+        <a href="#ways">Originals &amp; Prints</a>
+        <a href="#commission">Commissions</a>
+        <a href="#ways">Greeting cards</a>
+      </div>
+      <div class="foot-col">
+        <h4 style="font-size:1.1rem">Stay in touch</h4>
+        <a href="mailto:hello@wheretheres.light">hello@wheretheres.light</a>
+        <a href="#">Instagram</a>
+        <a href="#">Join the studio letter</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 Where There's Light · Laurita</span>
+      <span>Originals are one of a kind · Prints made to order</span>
+    </div>
+  </div>
+</footer>
+
+<!-- Cart drawer -->
+<div class="scrim" id="cartScrim" onclick="Cart.close()"></div>
+<aside class="drawer" id="cartDrawer" aria-label="Cart">
+  <div class="drawer-head"><h3>Your cart</h3><button class="drawer-close" onclick="Cart.close()" aria-label="Close">✕</button></div>
+  <div class="drawer-body" id="cartBody"></div>
+  <div class="drawer-foot">
+    <div class="cart-total"><span class="lbl">Subtotal</span><span class="amt" id="cartTotal">R 0</span></div>
+    <button class="btn btn-primary" id="checkoutBtn" style="width:100%" onclick="toast('Checkout is a demo in this prototype')">Proceed to checkout</button>
+    <p style="font-size:.74rem;color:var(--ink-soft);text-align:center;margin:12px 0 0">Free shipping in South Africa over R 1 500</p>
+  </div>
+</aside>
+
+<script src="shared.js"></script>
+<script>
+</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="tweaks.jsx"></script>
+</body>
+</html>

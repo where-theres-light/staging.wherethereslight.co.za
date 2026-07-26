@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Amelia's House — Where There's Light</title>
+<link rel="stylesheet" href="styles.css">
+<meta name="ext-resource-dependency" content="assets/home-small.jpg" data-resource-id="home_small" />
+<meta name="ext-resource-dependency" content="assets/kitchen-small.jpg" data-resource-id="kitchen_small" />
+<meta name="ext-resource-dependency" content="assets/readingroom-small.jpg" data-resource-id="readingroom_small" />
+<meta name="ext-resource-dependency" content="assets/study-small.jpg" data-resource-id="study_small" />
+<template id="__bundler_thumbnail" data-bg-color="#F7F6F2">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#F7F6F2"/>
+    <g fill="none" stroke="#2D3644" stroke-width="8" stroke-linejoin="round">
+      <path d="M470 540 v-150 l130 -100 130 100 v150 z"/>
+      <rect x="555" y="470" width="90" height="70"/>
+    </g>
+    <text x="600" y="640" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="40" fill="#9F8551">Amelia's House</text>
+  </svg>
+</template>
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Where There's Light home">
+      <img class="logo" src="assets/logo.svg" alt="Where There's Light">
+      <span class="tagline">Townscapes<br>by Laurita</span>
+    </a>
+    <nav class="nav">
+      <div class="nav-item"><a class="nav-link" href="amelias-house.html">The Collection <span class="caret">▾</span></a>
+        <div class="submenu"><div class="submenu-inner">
+          <a href="townscapes.html">Townscapes</a>
+          <a href="amelias-house.html">Amelia's House</a>
+          <a href="gift-tags.html">Gift Tags</a>
+        </div></div>
+      </div>
+      <a class="nav-link" href="index.html#about">About</a>
+      <a class="nav-link" href="upcoming.html">Upcoming</a>
+      <button class="cart-btn" onclick="Cart.open()">Cart <span class="count">(<span data-cart-count>0</span>)</span></button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="coll-hero wrap">
+    <span class="eyebrow" id="collEyebrow">The flagship range</span>
+    <h1 id="collTitle">Townscapes</h1>
+    <p class="intro" id="collIntro"></p>
+  </section>
+  <section class="coll-body wrap">
+    <div id="collGrid"></div>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-col">
+        <img class="foot-logo" src="assets/logo.svg" alt="Where There's Light">
+        <p>Hand-drawn townscapes and gardens by Laurita. Originals, fine-art prints and commissions — made in the Western Cape, shipped worldwide.</p>
+      </div>
+      <div class="foot-col">
+        <h4 style="font-size:1.1rem">Shop</h4>
+        <a href="townscapes.html">Townscapes</a>
+        <a href="amelias-house.html">Amelia's House</a>
+        <a href="gift-tags.html">Gift Tags</a>
+        <a href="index.html#ways">Originals &amp; Prints</a>
+      </div>
+      <div class="foot-col">
+        <h4 style="font-size:1.1rem">Stay in touch</h4>
+        <a href="mailto:hello@wheretheres.light">hello@wheretheres.light</a>
+        <a href="#">Instagram</a>
+        <a href="#">Join the studio letter</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 Where There's Light · Laurita</span>
+      <span>Originals are one of a kind · Prints made to order</span>
+    </div>
+  </div>
+</footer>
+
+<div class="scrim" id="cartScrim" onclick="Cart.close()"></div>
+<aside class="drawer" id="cartDrawer" aria-label="Cart">
+  <div class="drawer-head"><h3>Your cart</h3><button class="drawer-close" onclick="Cart.close()" aria-label="Close">✕</button></div>
+  <div class="drawer-body" id="cartBody"></div>
+  <div class="drawer-foot">
+    <div class="cart-total"><span class="lbl">Subtotal</span><span class="amt" id="cartTotal">R 0</span></div>
+    <button class="btn btn-primary" id="checkoutBtn" style="width:100%" onclick="toast('Checkout is a demo in this prototype')">Proceed to checkout</button>
+    <p style="font-size:.74rem;color:var(--ink-soft);text-align:center;margin:12px 0 0">Free shipping in South Africa over R 1 500</p>
+  </div>
+</aside>
+
+<script src="shared.js"></script>
+<script>renderCollection('amelias','collGrid');</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="tweaks.jsx"></script>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Upcoming — Where There's Light</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .up-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(32px,5vw,72px);align-items:center;padding-bottom:clamp(30px,4vw,60px);}
+  .up-art{background:#fff;border:1px solid var(--mist);padding:clamp(20px,3vw,44px);box-shadow:0 26px 50px -34px rgba(45,54,68,.5);}
+  .up-art img{width:100%;height:auto;display:block;}
+  .up-meta .status{display:inline-flex;align-items:center;gap:9px;font-size:.72rem;letter-spacing:.2em;text-transform:uppercase;color:var(--gold);margin-bottom:18px;}
+  .up-meta .status .dot{width:8px;height:8px;border-radius:50%;background:var(--gold);}
+  .up-meta h2{font-size:clamp(2rem,4vw,3rem);margin-bottom:.18em;}
+  .up-meta .sub{font-family:var(--serif);font-style:italic;font-size:1.3rem;color:var(--sage);margin-bottom:22px;}
+  .up-meta p{color:var(--ink-soft);max-width:48ch;}
+  .up-meta .notify{margin-top:24px;}
+  @media(max-width:820px){.up-grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Where There's Light home">
+      <img class="logo" src="assets/logo.svg" alt="Where There's Light">
+      <span class="tagline">Townscapes<br>by Laurita</span>
+    </a>
+    <nav class="nav">
+      <div class="nav-item"><a class="nav-link" href="townscapes.html">The Collection <span class="caret">▾</span></a>
+        <div class="submenu"><div class="submenu-inner">
+          <a href="townscapes.html">Townscapes</a>
+          <a href="amelias-house.html">Amelia's House</a>
+          <a href="gift-tags.html">Gift Tags</a>
+        </div></div>
+      </div>
+      <a class="nav-link" href="index.html#about">About</a>
+      <a class="nav-link" href="upcoming.html">Upcoming</a>
+      <button class="cart-btn" onclick="Cart.open()">Cart <span class="count">(<span data-cart-count>0</span>)</span></button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="coll-hero wrap">
+    <span class="eyebrow">In the studio</span>
+    <h1>Upcoming</h1>
+    <p class="intro">A look at what Laurita is working on next — new series and pieces before they join the collection.</p>
+  </section>
+  <section class="coll-body wrap">
+    <div class="up-grid">
+      <div class="up-art"><img src="assets/grasse-van-die-veld.png" alt="Grasse van die Veld — ink study of wild veld grasses"></div>
+      <div class="up-meta">
+        <span class="status"><span class="dot"></span>In progress · 2025</span>
+        <h2>Grasse van die Veld</h2>
+        <div class="sub">A new study in line and grass</div>
+        <p>A departure from the townscapes — an intimate study of the wild veld grasses that edge every scene Laurita draws. Pure line, no architecture: the fragile life-force that survives design, given the whole page for once.</p>
+        <p>Prints and originals will be announced here first.</p>
+        <button class="btn btn-gold notify" onclick="toast('We\u2019ll let you know when it\u2019s ready')">Notify me when available</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-col">
+        <img class="foot-logo" src="assets/logo.svg" alt="Where There's Light">
+        <p>Hand-drawn townscapes and gardens by Laurita. Originals, fine-art prints and commissions — made in the Western Cape, shipped worldwide.</p>
+      </div>
+      <div class="foot-col">
+        <h4 style="font-size:1.1rem">Shop</h4>
+        <a href="townscapes.html">Townscapes</a>
+        <a href="amelias-house.html">Amelia's House</a>
+        <a href="gift-tags.html">Gift Tags</a>
+        <a href="upcoming.html">Upcoming</a>
+      </div>
+      <div class="foot-col">
+        <h4 style="font-size:1.1rem">Stay in touch</h4>
+        <a href="mailto:hello@wheretheres.light">hello@wheretheres.light</a>
+        <a href="#">Instagram</a>
+        <a href="#">Join the studio letter</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 Where There's Light · Laurita</span>
+      <span>Originals are one of a kind · Prints made to order</span>
+    </div>
+  </div>
+</footer>
+
+<div class="scrim" id="cartScrim" onclick="Cart.close()"></div>
+<aside class="drawer" id="cartDrawer" aria-label="Cart">
+  <div class="drawer-head"><h3>Your cart</h3><button class="drawer-close" onclick="Cart.close()" aria-label="Close">✕</button></div>
+  <div class="drawer-body" id="cartBody"></div>
+  <div class="drawer-foot">
+    <div class="cart-total"><span class="lbl">Subtotal</span><span class="amt" id="cartTotal">R 0</span></div>
+    <button class="btn btn-primary" id="checkoutBtn" style="width:100%" onclick="toast('Checkout is a demo in this prototype')">Proceed to checkout</button>
+    <p style="font-size:.74rem;color:var(--ink-soft);text-align:center;margin:12px 0 0">Free shipping in South Africa over R 1 500</p>
+  </div>
+</aside>
+
+<script src="shared.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="tweaks.jsx"></script>
+</body>
+</html>

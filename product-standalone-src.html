@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Where There's Light — Townscape</title>
+<link rel="stylesheet" href="styles.css">
+<meta name="ext-resource-dependency" content="assets/boston-small.jpg" data-resource-id="boston_small" />
+<meta name="ext-resource-dependency" content="assets/boston-large.jpg" data-resource-id="boston_large" />
+<meta name="ext-resource-dependency" content="assets/swellendam-small.jpg" data-resource-id="swellendam_small" />
+<meta name="ext-resource-dependency" content="assets/somersetwest-small.jpg" data-resource-id="somersetwest_small" />
+<meta name="ext-resource-dependency" content="assets/windhoek-small.jpg" data-resource-id="windhoek_small" />
+<meta name="ext-resource-dependency" content="assets/caledon-small.jpg" data-resource-id="caledon_small" />
+<meta name="ext-resource-dependency" content="assets/london-small.jpg" data-resource-id="london_small" />
+<meta name="ext-resource-dependency" content="assets/polperro-small.jpg" data-resource-id="polperro_small" />
+<meta name="ext-resource-dependency" content="assets/shanghai-small.jpg" data-resource-id="shanghai_small" />
+<meta name="ext-resource-dependency" content="assets/stanford-small.jpg" data-resource-id="stanford_small" />
+<meta name="ext-resource-dependency" content="assets/stellenbosch-small.jpg" data-resource-id="stellenbosch_small" />
+<meta name="ext-resource-dependency" content="assets/home-small.jpg" data-resource-id="home_small" />
+<meta name="ext-resource-dependency" content="assets/kitchen-small.jpg" data-resource-id="kitchen_small" />
+<meta name="ext-resource-dependency" content="assets/readingroom-small.jpg" data-resource-id="readingroom_small" />
+<meta name="ext-resource-dependency" content="assets/study-small.jpg" data-resource-id="study_small" />
+<template id="__bundler_thumbnail" data-bg-color="#F7F6F2">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#F7F6F2"/>
+    <rect x="360" y="180" width="480" height="380" fill="#fff" stroke="#CAB69D" stroke-width="8"/>
+    <g fill="none" stroke="#2D3644" stroke-width="4"><circle cx="600" cy="360" r="120"/><circle cx="600" cy="360" r="88"/></g>
+    <text x="600" y="660" text-anchor="middle" font-family="Georgia, serif" font-size="30" letter-spacing="5" fill="#9F8551">WHERE THERE'S LIGHT</text>
+  </svg>
+</template>
+<style>
+  .crumbs{padding:26px 0 0;font-size:.82rem;letter-spacing:.04em;color:var(--ink-soft);}
+  .crumbs a{color:var(--ink-soft);}
+  .crumbs a:hover{color:var(--green);}
+  .crumbs .sep{margin:0 8px;color:var(--sage);}
+  .crumbs .here{color:var(--green);}
+
+  .product{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(32px,5vw,80px);padding:clamp(28px,4vw,56px) 0 clamp(60px,8vw,110px);align-items:start;}
+  .viewer{position:sticky;top:98px;}
+  .viewer .mat{background:#fff;border:1px solid var(--mist);padding:clamp(22px,3vw,52px);box-shadow:0 30px 60px -40px rgba(45,86,68,.45);}
+  .viewer .mat img{width:100%;height:auto;}
+  .viewer .signed{display:flex;align-items:center;gap:10px;margin-top:16px;font-size:.8rem;color:var(--ink-soft);letter-spacing:.04em;}
+  .viewer .signed svg{flex:none;}
+
+  .panel .eyebrow{display:block;margin-bottom:14px;}
+  .panel h1{font-size:clamp(2.6rem,4.4vw,3.8rem);margin-bottom:.16em;}
+  .panel .place{font-family:var(--serif);font-style:italic;font-size:1.35rem;color:var(--sage);margin-bottom:24px;}
+  .panel .blurb{font-size:1.02rem;color:var(--ink-soft);max-width:50ch;margin-bottom:32px;}
+
+  .pickr{border-top:1px solid var(--mist);padding-top:26px;}
+  .pickr .label{font-size:.74rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:14px;}
+  .opts{display:flex;flex-direction:column;gap:10px;}
+  .opt{display:flex;align-items:center;gap:16px;border:1px solid var(--mist);background:#fff;padding:16px 18px;cursor:pointer;transition:.18s;position:relative;}
+  .opt:hover{border-color:var(--sage);}
+  .opt.sel{border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green);}
+  .opt .dot{width:16px;height:16px;border-radius:50%;border:1px solid var(--sage);flex:none;transition:.18s;}
+  .opt.sel .dot{border-color:var(--green);background:radial-gradient(circle,var(--green) 0 5px,#fff 6px);}
+  .opt .info{flex:1;}
+  .opt .nm{font-family:var(--serif);font-size:1.18rem;color:var(--green);line-height:1.1;}
+  .opt .sub{font-size:.78rem;color:var(--ink-soft);margin-top:2px;}
+  .opt .pr{font-family:var(--serif);font-size:1.25rem;color:var(--gold);flex:none;}
+  .opt.disabled{opacity:.5;cursor:not-allowed;}
+  .opt.disabled .pr{color:var(--sage);}
+
+  .buy{margin-top:26px;display:flex;flex-direction:column;gap:12px;}
+  .buyrow{display:flex;align-items:baseline;justify-content:space-between;gap:16px;}
+  .buyrow .total{font-family:var(--serif);font-size:2.1rem;color:var(--green);}
+  .buyrow .total small{font-family:var(--sans);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);display:block;}
+  .buy .btn{width:100%;}
+  .reassure{display:flex;gap:22px;flex-wrap:wrap;margin-top:18px;font-size:.8rem;color:var(--ink-soft);}
+  .reassure span{display:flex;align-items:center;gap:7px;}
+  .reassure b{color:var(--green);font-weight:600;}
+
+  details.spec{border-top:1px solid var(--mist);margin-top:4px;}
+  details.spec summary{list-style:none;cursor:pointer;padding:16px 0;font-size:.92rem;letter-spacing:.02em;color:var(--green);display:flex;justify-content:space-between;align-items:center;}
+  details.spec summary::-webkit-details-marker{display:none;}
+  details.spec summary .pl{color:var(--gold);font-size:1.2rem;transition:.2s;}
+  details.spec[open] summary .pl{transform:rotate(45deg);}
+  details.spec p{font-size:.9rem;color:var(--ink-soft);padding:0 0 18px;max-width:52ch;margin:0;}
+
+  @media(max-width:820px){.product{grid-template-columns:1fr;}.viewer{position:static;}}
+
+  /* more from collection */
+  .more{border-top:1px solid var(--mist);padding-block:clamp(50px,7vw,90px);}
+  .more .strip{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(16px,2vw,28px);margin-top:34px;}
+  .more figure{margin:0;}
+  .more .mat{background:#fff;border:1px solid var(--mist);padding:14px;overflow:hidden;}
+  .more .mat img{width:100%;transition:transform .8s cubic-bezier(.2,0,.1,1);}
+  .more a:hover .mat img{transform:scale(1.04);}
+  .more .nm{font-family:var(--serif);font-size:1.2rem;color:var(--green);margin-top:12px;}
+  .more .pl2{font-size:.76rem;color:var(--ink-soft);}
+  @media(max-width:720px){.more .strip{grid-template-columns:1fr 1fr;}}
+</style>
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Where There's Light home">
+      <img class="logo" src="assets/logo.svg" alt="Where There's Light">
+      <span class="tagline">Townscapes by Laurita</span>
+    </a>
+    <nav class="nav">
+      <div class="nav-item"><a class="nav-link" href="townscapes.html">The Collection <span class="caret">▾</span></a>
+        <div class="submenu"><div class="submenu-inner">
+          <a href="townscapes.html">Townscapes</a>
+          <a href="amelias-house.html">Amelia's House</a>
+          <a href="gift-tags.html">Gift Tags</a>
+        </div></div>
+      </div>
+      <a class="nav-link" href="index.html#about">About</a>
+      <a class="nav-link" href="upcoming.html">Upcoming</a>
+      <button class="cart-btn" onclick="Cart.open()">Cart <span class="count">(<span data-cart-count>0</span>)</span></button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <nav class="crumbs"><a href="index.html">Home</a><span class="sep">/</span><a href="index.html#collection">The Collection</a><span class="sep">/</span><span class="here" id="crumbHere">—</span></nav>
+
+  <section class="product">
+    <div class="viewer">
+      <div class="mat"><img id="pImg" src="" alt=""></div>
+      <div class="signed">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 12c3-1 5-7 7-7s2 4 4 3" stroke="#9F8551" stroke-width="1.3" stroke-linecap="round"/></svg>
+        <span id="signedNote">Signed &amp; dated by hand</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <span class="eyebrow" id="pEyebrow">Hand-drawn townscape</span>
+      <h1 id="pTitle">—</h1>
+      <div class="place" id="pPlace">—</div>
+      <p class="blurb" id="pBlurb">—</p>
+
+      <div class="pickr">
+        <div class="label">Choose your piece</div>
+        <div class="opts" id="opts"></div>
+      </div>
+
+      <div class="buy">
+        <div class="buyrow">
+          <div class="total"><small>Total</small><span id="pTotal">—</span></div>
+          <button class="btn btn-primary" id="addBtn" style="flex:1" onclick="addToCart()">Add to cart</button>
+        </div>
+        <div class="reassure">
+          <span><b>✓</b> Archival giclée, made to order</span>
+          <span><b>✓</b> Ships worldwide from the Cape</span>
+        </div>
+      </div>
+
+      <div style="margin-top:28px">
+        <details class="spec" open><summary>Paper &amp; ink <span class="pl">+</span></summary><p>Printed with pigment inks on 310gsm archival cotton rag with a soft matte tooth — the same warm white as Laurita's original paper. Originals are drawn in permanent India ink.</p></details>
+        <details class="spec"><summary>Framing <span class="pl">+</span></summary><p>The framed option comes in a hand-finished oak frame with anti-reflective museum glass and an acid-free mount. Unframed prints arrive flat or rolled, ready for your own framer.</p></details>
+        <details class="spec"><summary>Shipping &amp; returns <span class="pl">+</span></summary><p>Prints are made to order and dispatched within 5–7 working days. Free shipping within South Africa over R 1 500; worldwide shipping calculated at checkout. Originals are couriered insured.</p></details>
+        <details class="spec"><summary>Commission this town <span class="pl">+</span></summary><p>Want your own street, home or town in this hand? Commissions start at R 9 500 — <a href="index.html#commission" style="color:var(--green);text-decoration:underline">tell Laurita the place and the story</a>.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="more">
+    <div class="sec-head"><h2>More from the collection</h2></div>
+    <div class="strip" id="moreStrip"></div>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-col">
+        <img class="foot-logo" src="assets/logo.svg" alt="Where There's Light">
+        <p>Hand-drawn townscapes and gardens by Laurita. Originals, fine-art prints and commissions — made in the Western Cape, shipped worldwide.</p>
+      </div>
+      <div class="foot-col">
+        <h4 style="font-size:1.1rem">Shop</h4>
+        <a href="index.html#collection">The Collection</a>
+        <a href="index.html#ways">Originals &amp; Prints</a>
+        <a href="index.html#commission">Commissions</a>
+      </div>
+      <div class="foot-col">
+        <h4 style="font-size:1.1rem">Stay in touch</h4>
+        <a href="mailto:hello@wheretheres.light">hello@wheretheres.light</a>
+        <a href="#">Instagram</a>
+        <a href="#">Join the studio letter</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 Where There's Light · Laurita</span>
+      <span>Originals are one of a kind · Prints made to order</span>
+    </div>
+  </div>
+</footer>
+
+<div class="scrim" id="cartScrim" onclick="Cart.close()"></div>
+<aside class="drawer" id="cartDrawer" aria-label="Cart">
+  <div class="drawer-head"><h3>Your cart</h3><button class="drawer-close" onclick="Cart.close()" aria-label="Close">✕</button></div>
+  <div class="drawer-body" id="cartBody"></div>
+  <div class="drawer-foot">
+    <div class="cart-total"><span class="lbl">Subtotal</span><span class="amt" id="cartTotal">R 0</span></div>
+    <button class="btn btn-primary" id="checkoutBtn" style="width:100%" onclick="toast('Checkout is a demo in this prototype')">Proceed to checkout</button>
+    <p style="font-size:.74rem;color:var(--ink-soft);text-align:center;margin:12px 0 0">Free shipping in South Africa over R 1 500</p>
+  </div>
+</aside>
+
+<script src="shared.js"></script>
+<script>
+  const params=new URLSearchParams(location.search);
+  const piece=byId(params.get('piece')) || CATALOG[0];
+  let selected=null;
+
+  document.title=`${piece.title} — Where There's Light`;
+  document.getElementById('crumbHere').textContent=piece.title;
+  document.getElementById('pImg').src=piece.large||piece.img;
+  document.getElementById('pImg').alt=`${piece.title} townscape by Laurita`;
+  document.getElementById('pTitle').textContent=piece.title;
+  document.getElementById('pPlace').textContent=`${piece.place} · ${piece.year}`;
+  document.getElementById('pEyebrow').textContent = piece.cat==='amelias' ? "Amelia's House · miniature interior" : 'Hand-drawn townscape';
+  document.getElementById('pBlurb').textContent=piece.blurb;
+
+  // build edition options
+  const optsEl=document.getElementById('opts');
+  const EDS = piece.printPrice!=null
+    ? [
+        {key:'print', name:'Fine-art print', sub:`Unframed · ${piece.size||''}${piece.printPrice===170?' · excl. shipping':''}`, price:piece.printPrice},
+        {key:'orig',  name: piece.cat==='amelias' ? 'Original illustration' : 'Original artwork', sub:'Unframed · one of a kind', price:piece.original.price}
+      ]
+    : EDITIONS;
+  const opts=EDS.map(e=>{
+    const isOrig=e.key==='orig';
+    const price=isOrig?piece.original.price:e.price;
+    const sold=isOrig&&piece.original.status==='sold';
+    return {...e, price, sold};
+  });
+  optsEl.innerHTML=opts.map((e,i)=>`
+    <div class="opt${e.sold?' disabled':''}" data-i="${i}">
+      <div class="dot"></div>
+      <div class="info"><div class="nm">${e.name}</div><div class="sub">${e.sold?'Sold — one of a kind':e.sub}</div></div>
+      <div class="pr">${e.sold?'Sold':ZAR(e.price)}</div>
+    </div>`).join('');
+
+  function select(i){
+    if(opts[i].sold) return;
+    selected=i;
+    document.querySelectorAll('.opt').forEach((el,j)=>el.classList.toggle('sel',j===i));
+    document.getElementById('pTotal').textContent=ZAR(opts[i].price);
+    document.getElementById('addBtn').disabled=false;
+    document.getElementById('addBtn').textContent='Add to cart';
+  }
+  document.querySelectorAll('.opt').forEach(el=>el.addEventListener('click',()=>select(+el.dataset.i)));
+  // default: first non-sold, prefer A3
+  const def=opts.findIndex(o=>o.key==='a3'&&!o.sold);
+  select(def>=0?def:opts.findIndex(o=>!o.sold));
+  function addToCart(){
+    if(selected==null) return;
+    const e=opts[selected];
+    Cart.add({id:piece.id,title:piece.title,img:piece.img,edition:e.name,price:e.price});
+  }
+
+  // more from collection (exclude current)
+  document.getElementById('moreStrip').innerHTML=CATALOG.filter(p=>p.id!==piece.id).slice(0,4).map(p=>`
+    <figure><a href="product.html?piece=${p.id}">
+      <div class="mat"><img src="${p.img}" alt="${p.title}" loading="lazy"></div>
+      <div class="nm">${p.title}</div><div class="pl2">${p.place}</div>
+    </a></figure>`).join('');
+</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="tweaks.jsx"></script>
+</body>
+</html>
