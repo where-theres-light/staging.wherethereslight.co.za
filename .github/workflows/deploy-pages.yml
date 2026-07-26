@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   workflow_dispatch:
 
 # Allow the GITHUB_TOKEN to deploy to GitHub Pages
@@ -11,16 +11,15 @@ permissions:
   pages: write
   id-token: write
 
-# Allow one concurrent deployment, don't cancel in-progress runs
+# One concurrent run per branch; never cancel an in-progress deploy
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  # Build (package) the static site on every branch push so breakages are
+  # caught before merging, without publishing.
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,6 +34,15 @@ jobs:
           # The site is static and served from the repository root
           path: '.'
 
+  # Publish to the live site only from the default branch.
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
