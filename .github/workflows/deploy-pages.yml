@@ -11,14 +11,13 @@ permissions:
   pages: write
   id-token: write
 
-# One concurrent run per branch; never cancel an in-progress deploy
+# Single deploy target (one live staging site), so serialize runs across all
+# branches and never cancel an in-progress deploy.
 concurrency:
-  group: pages-${{ github.ref }}
+  group: pages
   cancel-in-progress: false
 
 jobs:
-  # Build (package) the static site on every branch push so breakages are
-  # caught before merging, without publishing.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -34,9 +33,9 @@ jobs:
           # The site is static and served from the repository root
           path: '.'
 
-  # Publish to the live site only from the default branch.
+  # Staging: publish on every branch push so the live site always reflects
+  # the most recent push.
   deploy:
-    if: github.ref == 'refs/heads/main'
     needs: build
     environment:
       name: github-pages
