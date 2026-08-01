@@ -4,7 +4,7 @@ const R = (id, path) => (window.__resources && window.__resources[id]) || path;
 const CATALOG = [
   {
     id:'boston', title:'Boston', place:'Bellville, Cape Town',
-    year:2019, img:R('boston_small','assets/boston-small.jpg'), large:R('boston_large','assets/boston-large.jpg'),
+    year:2019, img:R('boston_small','assets/boston-small.jpg'), large:R('boston_large','assets/boston-small.jpg'),
     orientation:'landscape',
     cat:'townscapes', size:'412 × 297 mm', printPrice:360,
     blurb:'The old Boston shopfronts gather beneath a dotted dome of Karoo light, hemmed in by a riot of fynbos and garden green.',
