@@ -82,16 +82,15 @@ p{margin:0 0 1em;}
 @media(max-width:760px){
   /* .nav .nav-link{display:none;} */
   .brand .tagline{display:none;}
+  .nav{gap:14px;}
 }
 
 /* ---- Buttons ---- */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;font-family:var(--sans);font-weight:600;font-size:.9rem;letter-spacing:.02em;padding:14px 28px;border-radius:2px;border:1px solid transparent;transition:.2s;}
 .btn-primary{background:var(--green);color:var(--paper);}
-.btn-primary:hover{background:#234638;}
+.btn-primary:hover{background:var(--gold);}
 .btn-ghost{background:none;border-color:color-mix(in srgb,var(--green) 30%,transparent);color:var(--green);}
 .btn-ghost:hover{background:var(--green);color:var(--paper);}
-.btn-gold{background:var(--gold);color:#fff;}
-.btn-gold:hover{background:#8a7344;}
 
 /* ---- Footer ---- */
 .site-foot{background:var(--green);color:color-mix(in srgb,var(--paper) 86%,transparent);margin-top:0;}
@@ -136,7 +135,7 @@ p{margin:0 0 1em;}
 .mat-clean .viewer .mat{box-shadow:none !important;}
 
 /* ---- Collection category page ---- */
-.coll-hero{padding:clamp(48px,7vw,96px) 0 clamp(28px,3vw,44px);text-align:center;}
+.coll-hero{padding:clamp(48px,7vw,96px) clamp(60px,9vw,120px) clamp(28px,3vw,44px);text-align:center;}
 .coll-hero .eyebrow{display:block;margin-bottom:16px;}
 .coll-hero h1{margin:0 auto .3em;}
 .coll-hero .intro{max-width:60ch;margin:0 auto;font-family:var(--serif);font-size:clamp(1.15rem,1.9vw,1.5rem);line-height:1.5;color:var(--ink-soft);}
