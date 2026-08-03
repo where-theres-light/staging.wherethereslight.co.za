@@ -24,14 +24,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Offline/staging build: strips the back-end (Supabase/PayFast) calls and
+      # composes the pages into ui/dist. No secrets needed.
+      - name: Build dev version
+        run: make dev
+
+      - name: Set staging custom domain
+        run: echo "staging.wherethereslight.co.za" > ui/dist/CNAME
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # The site is static and served from the repository root
-          path: '.'
+          # Deploy the composed build output, not the repo root.
+          path: ui/dist
 
   # Staging: publish on every branch push so the live site always reflects
   # the most recent push.
