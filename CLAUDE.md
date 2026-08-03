@@ -55,23 +55,36 @@ The build composes the source entry files (HTML/CSS/JS) through `compose` into
 
 ## Catalog & pricing data
 
-The prices and catalog content (the equivalent of today's `CATALOG` / `EDITIONS`
-in `shared.js`) are **not hard-coded in the shipped JS** — they come from a
-**Supabase DB table** in production. This keeps prices authoritative on the
-back-end (the same reason the checkout total must be recomputed server-side).
+The prices and catalog content are **not hard-coded in the shipped JS** — they
+come from a **Supabase DB table** in production. This keeps prices authoritative
+on the back-end (the same reason the checkout total must be recomputed
+server-side).
 
-- **`prd`** — the JS fetches catalog + pricing from the Supabase table (this
-  fetch is back-end code, so it lives inside the `//online` markers and is
-  present only in the production build).
-- **`dev`** — with the online calls stripped, the JS instead reads the catalog
-  from **browser `localStorage`**. A **`demo.js`** file is included in the dev
-  build that **seeds `localStorage` with demo catalog/pricing data if it isn't
-  already present**, so the offline staging site has content to render without
-  ever touching Supabase.
+`shared.js` always reads the catalog from `localStorage` under the key
+**`wtl_catalog`** and adapts it to the render model, so the render path is
+identical for both builds. What differs is who fills that key:
+
+- **`prd`** — `shared.js` fetches the catalog from Supabase, caches it into
+  `wtl_catalog`, and re-renders. That fetch is back-end code, so it lives inside
+  the `//online` markers and is present only in the production build.
+- **`dev`** — with the online calls stripped, nothing fetches. A **`demo.js`**
+  file seeds `wtl_catalog` with demo data (reseeding when its `version` bumps).
+  The `dev` build **injects `<script src="demo.js">` before `shared.js`** into
+  every page, so demo data is present before `shared.js` reads it. The source
+  pages carry no `demo.js` tag — it exists only in the composed `dev` output.
 
 So the source of truth flips by build: **DB table in `prd`, `localStorage`
-(seeded by `demo.js`) in `dev`**. `demo.js` is a dev-only file — it must not be
-copied into the `prd` build.
+(seeded by `demo.js`) in `dev`**. `demo.js` is dev-only — it is neither copied
+into nor referenced by the `prd` build.
+
+### Product data model
+
+`demo.js` (and the future Supabase table) store `categories`, `editions`, and
+`products`. A **product** is one catalogue item; each carries a **`variants`**
+array — the purchasable options that hold price and stock (`print` / `original`
+/ `single` / …). This one shape covers townscapes, miniatures and gift tags, and
+maps onto `products` + `product_variants` tables. See the header of `demo.js` for
+the full field reference.
 
 ## Source layout (`ui/`)
 

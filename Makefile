@@ -15,7 +15,8 @@ MAP  := make/web.map
 dev: stage
 	@sed -i '/\/\/online-start$$/,/\/\/online-end$$/d' $(DIST)/shared.js
 	@sed -i '/\/\/online$$/d' $(DIST)/shared.js
-	@[ -f $(SRC)/demo.js ] && cp $(SRC)/demo.js $(DIST)/ || true
+	@cp $(SRC)/demo.js $(DIST)/
+	@sed -i 's#<script src="shared.js"></script>#<script src="demo.js"></script>\n<script src="shared.js"></script>#' $(DIST)/*.html
 	@echo "Built dev (offline) → $(DIST)"
 
 # ---- prd: production build (back-end calls kept) ----

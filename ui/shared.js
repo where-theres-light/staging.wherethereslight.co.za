@@ -1,158 +1,80 @@
 /* Where There's Light — catalog data + cart */
 /* R() returns the inlined blob URL when bundled standalone, else the file path. */
 const R = (id, path) => (window.__resources && window.__resources[id]) || path;
-const CATALOG = [
-  {
-    id:'boston', title:'Boston', place:'Bellville, Cape Town',
-    year:2019, img:R('boston_small','assets/boston-small.jpg'), large:R('boston_large','assets/boston-small.jpg'),
-    orientation:'landscape',
-    cat:'townscapes', size:'412 × 297 mm', printPrice:360,
-    blurb:'The old Boston shopfronts gather beneath a dotted dome of Karoo light, hemmed in by a riot of fynbos and garden green.',
-    original:{price:1300, status:'available'},
-    fromPrint:360
-  },
-  {
-    id:'swellendam', title:'Swellendam', place:'Overberg, Western Cape',
-    year:2018, img:R('swellendam_small','assets/swellendam-small.jpg'),
-    orientation:'landscape',
-    cat:'townscapes', size:'412 × 297 mm', printPrice:360,
-    blurb:'The Drostdy and its oaks, drawn in patient ink — one of the oldest towns in the country, kept in a single quiet frame.',
-    original:{price:1300, status:'available'},
-    fromPrint:360
-  },
-  {
-    id:'somersetwest', title:'Somerset West', place:'Helderberg, Western Cape',
-    year:2018, img:R('somersetwest_small','assets/somersetwest-small.jpg'),
-    orientation:'landscape',
-    cat:'townscapes', size:'412 × 297 mm', printPrice:360,
-    blurb:'Steeples, verandahs and a fountained square nestle below the Helderberg, wrapped in a hedge of hand-inked blooms.',
-    original:{price:1300, status:'available'},
-    fromPrint:360
-  },
-  {
-    id:'windhoek', title:'Windhoek', place:'Khomas, Namibia',
-    year:2020, img:R('windhoek_small','assets/windhoek-small.jpg'),
-    orientation:'landscape',
-    cat:'townscapes', size:'412 × 297 mm', printPrice:360,
-    blurb:'The Christuskirche and the old colonial roofline rise from a desert garden, the mountains pencilled soft behind.',
-    original:{price:1300, status:'available'},
-    fromPrint:360
-  },
-  {
-    id:'caledon', title:'Caledon', place:'Overberg, Western Cape',
-    year:2017, img:R('caledon_small','assets/caledon-small.jpg'),
-    orientation:'landscape',
-    cat:'townscapes', size:'412 × 297 mm', printPrice:360,
-    blurb:'The Dutch Reformed church and its gables, cradled in the wild garden that gave the town its hot-spring fame.',
-    original:{price:1300, status:'sold'},
-    fromPrint:360
-  },
-  {
-    id:'london', title:'London', place:'England, United Kingdom',
-    year:2023, img:R('london_small','assets/london-small.jpg'),
-    orientation:'landscape', cat:'townscapes', size:'412 × 297 mm', printPrice:360,
-    blurb:'Big Ben, the Eye and a skyline of landmarks gathered into a single dome of light, wreathed in an English cottage garden.',
-    original:{price:1300, status:'available'},
-    fromPrint:360
-  },
-  {
-    id:'polperro', title:'Polperro', place:'Cornwall, United Kingdom',
-    year:2023, img:R('polperro_small','assets/polperro-small.jpg'),
-    orientation:'landscape', cat:'townscapes', size:'412 × 297 mm', printPrice:360,
-    blurb:'The tumbling harbour cottages of a Cornish fishing village, climbing the hillside above the quay.',
-    original:{price:1300, status:'available'},
-    fromPrint:360
-  },
-  {
-    id:'shanghai', title:'Shanghai', place:'China',
-    year:2023, img:R('shanghai_small','assets/shanghai-small.jpg'),
-    orientation:'landscape', cat:'townscapes', size:'412 × 297 mm', printPrice:360,
-    blurb:'Layered rooftops and the distant tower, drawn inside a circular window of ink and colour — old lanes meeting the modern skyline.',
-    original:{price:1300, status:'available'},
-    fromPrint:360
-  },
-  {
-    id:'stanford', title:'Stanford', place:'Overberg, Western Cape',
-    year:2022, img:R('stanford_small','assets/stanford-small.jpg'),
-    orientation:'landscape', cat:'townscapes', size:'412 × 297 mm', printPrice:360,
-    blurb:'The white church spire and village cottages below the Klein River mountains, held in a wild garden of fynbos.',
-    original:{price:1300, status:'available'},
-    fromPrint:360
-  },
-  {
-    id:'stellenbosch', title:'Stellenbosch', place:'Cape Winelands, Western Cape',
-    year:2022, img:R('stellenbosch_small','assets/stellenbosch-small.jpg'),
-    orientation:'landscape', cat:'townscapes', size:'412 × 297 mm', printPrice:360,
-    blurb:'The oak-lined town of gables and the old church tower, cradled below the mountains in a hedge of hand-inked blooms.',
-    original:{price:1300, status:'available'},
-    fromPrint:360
-  },
-  {
-    id:'amelias-house', title:"Home", place:'Miniature interior · 412 × 297 mm',
-    year:2021, img:R('home_small','assets/home-small.jpg'),
-    orientation:'landscape', cat:'amelias',
-    size:'412 × 297 mm',
-    printPrice:360,
-    blurb:'A gabled cottage nestled in its garden — one of the small, lit houses in the Amelia\u2019s House collection. Perfect to fill a small space on your gallery wall or to group together as a collection.',
-    original:{price:null, status:'sold'},
-    fromPrint:360
-  },
-  {
-    id:'amelias-kitchen', title:"Amelia's Kitchen", place:'Miniature interior · 120 × 170 mm',
-    year:2024, img:R('kitchen_small','assets/kitchen-small.jpg'),
-    orientation:'landscape', cat:'amelias', size:'120 × 170 mm', printPrice:170,
-    blurb:'A busy little kitchen full of light \u2014 herbs at the window, a cat on the bench and everything in its place. From the Amelia\u2019s House collection.',
-    original:{price:null, status:'sold'},
-    fromPrint:170
-  },
-  {
-    id:'amelias-reading-room', title:"Amelia's Reading Room", place:'Miniature interior · 120 × 170 mm',
-    year:2024, img:R('readingroom_small','assets/readingroom-small.jpg'),
-    orientation:'landscape', cat:'amelias', size:'120 × 170 mm', printPrice:170,
-    blurb:'A quiet corner to curl up in \u2014 a soft armchair, a lamp and a window onto the city. From the Amelia\u2019s House collection.',
-    original:{price:null, status:'sold'},
-    fromPrint:170
-  },
-  {
-    id:'amelias-study', title:"Amelia's Study", place:'Miniature interior · 120 × 170 mm',
-    year:2024, img:R('study_small','assets/study-small.jpg'),
-    orientation:'landscape', cat:'amelias', size:'120 × 170 mm', printPrice:170,
-    blurb:'An open book, a cup of coffee and a street view \u2014 the perfect spot to think. From the Amelia\u2019s House collection.',
-    original:{price:null, status:'sold'},
-    fromPrint:170
-  }
-];
 
-const EDITIONS = [
-  {key:'a4',  name:'Fine-art print · A4', sub:'Open edition · 21 × 30 cm', price:690},
-  {key:'a3',  name:'Fine-art print · A3', sub:'Limited edition of 50 · 30 × 42 cm', price:1250},
-  {key:'a2',  name:'Fine-art print · A2', sub:'Limited edition of 25 · 42 × 59 cm', price:1950},
-  {key:'a3f', name:'Framed A3 print',     sub:'Oak frame, museum glass · edition of 50', price:2450},
-  {key:'orig',name:'Original ink drawing',sub:'One of a kind · ink on 300gsm cotton paper', price:null}
-];
+/* ---------- Catalog data source ----------
+   The catalog (products, editions, categories) is authoritative in a Supabase
+   table in production; in the offline dev build it is seeded into localStorage
+   by demo.js. Either way it is read from localStorage under `wtl_catalog`, so
+   the render path below is identical for both builds. */
+const CATALOG_KEY = 'wtl_catalog';
 
-const CATEGORIES = {
-  townscapes:{
-    title:'Townscapes',
-    eyebrow:'The flagship range',
-    intro:'Our flagship range \u2014 collections of towns drawn in pen on high-quality Fabriano paper. Every gable, fountain and garden held inside a dome of light. We are always on the lookout for more beautiful places to capture.'
-  },
-  amelias:{
-    title:"Amelia's House",
-    eyebrow:'Miniature interiors',
-    intro:'Amelia\u2019s House is a small collection of illustrations. Perfect to fill a small space on your gallery wall, group together as a collection or to add interest to a small space.',
-    empty:'New little rooms are being drawn. Join the studio letter and we\u2019ll tell you the moment Amelia\u2019s House opens its doors.'
-  },
-  gifttags:{
-    title:'Gift Tags',
-    eyebrow:'In collaboration with Koue Koffie Boeke',
-    intro:'We are very proud to be collaborating with Koue Koffie Boeke on our range of gift tags. Our range includes cards perfect for all ages and can be purchased individually or in sets.'
-  }
-};
+let DATA = (() => {
+  try { return JSON.parse(localStorage.getItem(CATALOG_KEY)); } catch (e) { return null; }
+})() || { categories: {}, editions: [], products: [] };
 
-const ZAR = n => 'R\u00A0' + n.toLocaleString('en-ZA');
-const byId = id => CATALOG.find(p=>p.id===id);
-const byCat = cat => CATALOG.filter(p=>p.cat===cat);
+/* Map a product (products/variants model) onto the legacy piece shape the
+   renderers still consume — a thin adapter so the data model can be the single
+   source of truth without rewriting product.html / renderCollection yet. */
+function toLegacyPiece(p) {
+  const print = (p.variants || []).find(v => v.kind === 'print');
+  const orig  = (p.variants || []).find(v => v.kind === 'original');
+  return {
+    id: p.id, title: p.title, place: p.place, year: p.year,
+    img: p.image, large: p.imageLarge || p.image,
+    orientation: p.orientation, cat: p.category, size: p.size,
+    blurb: p.blurb,
+    printPrice: print ? print.price : null,
+    original: orig ? { price: orig.price, status: orig.status } : { price: null, status: 'sold' },
+    fromPrint: print ? print.price : (orig ? orig.price : null)
+  };
+}
+
+/* Legacy-compatible views, rebuilt whenever DATA changes. Gift tags render from
+   their own page data, so they are excluded from CATALOG. */
+let CATALOG, EDITIONS, CATEGORIES;
+function rebuildViews() {
+  CATEGORIES = DATA.categories || {};
+  EDITIONS   = DATA.editions   || [];
+  CATALOG    = (DATA.products || [])
+    .slice()
+    .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
+    .filter(p => p.category !== 'gifttags')
+    .map(toLegacyPiece);
+}
+rebuildViews();
+
+//online-start
+/* Production: the catalog lives in Supabase. Refresh it, cache it under the same
+   key, rebuild the views and let listening pages re-render. The project URL and
+   publishable key are filled in when the back-end is provisioned. */
+const SUPABASE_URL  = window.__SUPABASE_URL  || '';
+const SUPABASE_ANON = window.__SUPABASE_ANON || '';
+async function refreshCatalog() {
+  if (!SUPABASE_URL) return;
+  try {
+    const res = await fetch(SUPABASE_URL + '/functions/v1/catalog', {
+      headers: { 'Authorization': 'Bearer ' + SUPABASE_ANON }
+    });
+    if (!res.ok) return;
+    DATA = await res.json();
+    localStorage.setItem(CATALOG_KEY, JSON.stringify(DATA));
+    rebuildViews();
+    document.dispatchEvent(new Event('catalog:updated'));
+  } catch (e) { /* keep the cached catalog on failure */ }
+}
+refreshCatalog();
+//online-end
+
+const ZAR = n => 'R ' + n.toLocaleString('en-ZA');
+const byId = id => CATALOG.find(p => p.id === id);
+const byCat = cat => CATALOG.filter(p => p.cat === cat);
+
+/* Products in a category, in the raw (products/variants) model — for pages that
+   render the new shape directly rather than the legacy piece view. */
+const productsIn = cat => (DATA.products || [])
+  .filter(p => p.category === cat)
+  .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
 
 /* ---------- Collection grid renderer ---------- */
 function renderCollection(cat, mountId){
@@ -161,7 +83,7 @@ function renderCollection(cat, mountId){
   const eb=document.getElementById('collEyebrow'); if(eb) eb.textContent=meta.eyebrow||'';
   const tt=document.getElementById('collTitle'); if(tt) tt.textContent=meta.title||'The Collection';
   const intro=document.getElementById('collIntro'); if(intro) intro.textContent=meta.intro||'';
-  document.title=`${meta.title||'The Collection'} \u2014 Where There's Light`;
+  document.title=`${meta.title||'The Collection'} — Where There's Light`;
   const mount=document.getElementById(mountId); if(!mount) return;
   if(!items.length){
     mount.className='';
@@ -174,7 +96,7 @@ function renderCollection(cat, mountId){
     const pricing = `<div class="from">from ${ZAR(p.fromPrint)}</div>` + (p.original.status==='sold'
       ? '<span class="sold">Original sold</span>'
       : `<div class="amt">${ZAR(p.original.price)}</div>`);
-    return `<figure class="piece${feature}"><a href="product.html?piece=${p.id}"><div class="mat"><div class="imgwrap"><img src="${p.img}" alt="${p.title} townscape" loading="lazy"></div></div><figcaption class="cap"><div><div class="ttl">${p.title}</div><div class="place">${p.place} \u00b7 ${p.year}</div></div><div class="pricing">${pricing}</div></figcaption></a></figure>`;
+    return `<figure class="piece${feature}"><a href="product.html?piece=${p.id}"><div class="mat"><div class="imgwrap"><img src="${p.img}" alt="${p.title} townscape" loading="lazy"></div></div><figcaption class="cap"><div><div class="ttl">${p.title}</div><div class="place">${p.place} · ${p.year}</div></div><div class="pricing">${pricing}</div></figcaption></a></figure>`;
   }).join('');
 }
 

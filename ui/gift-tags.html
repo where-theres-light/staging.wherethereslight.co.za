@@ -106,39 +106,27 @@
 <script src="shared.js"></script>
 <script>
 renderCollection('gifttags','collGrid');
-const TAG_TIERS=[
-  {key:'single',nm:'Singles',sub:'Individual gift tag',price:15},
-  {key:'mono5',nm:'Mono set of 5',sub:'Signature monochrome',price:60},
-  {key:'mix10',nm:'Mixed set of 10',sub:'Colour · water-colour range',price:100}
-];
-document.getElementById('tagRows').innerHTML=TAG_TIERS.map(t=>`
+
+// Set-pricing tiers come from the category metadata.
+const tiers = (CATEGORIES.gifttags && CATEGORIES.gifttags.tiers) || [];
+document.getElementById('tagRows').innerHTML=tiers.map(t=>`
   <div class="price-row">
-    <div class="info"><div class="nm">${t.nm}</div><div class="sub">${t.sub} · printed on cardstock</div></div>
+    <div class="info"><div class="nm">${t.name}</div><div class="sub">${t.sub} · printed on cardstock</div></div>
     <div class="pr">${ZAR(t.price)}</div>
-    <button class="btn btn-ghost" onclick="Cart.add({id:'gifttag-${t.key}',title:'Gift Tags — ${t.nm}',img:R('logo','assets/logo.svg'),edition:'${t.sub}',price:${t.price}})">Add to cart</button>
+    <button class="btn btn-ghost" onclick="Cart.add({id:'gifttag-${t.key}',title:'Gift Tags — ${t.name}',img:R('logo','assets/logo.svg'),edition:'${t.sub}',price:${t.price}})">Add to cart</button>
   </div>`).join('');
 
-const TAG_DESIGNS=[
-  {id:'icecream',nm:'Ice-Cream Cone',img:'assets/tag-icecream.jpg',rng:'Water-colour'},
-  {id:'boots',nm:'Garden Boots',img:'assets/tag-boots.jpg',rng:'Water-colour'},
-  {id:'mouse',nm:'Party Mouse',img:'assets/tag-mouse.jpg',rng:'Water-colour'},
-  {id:'dots',nm:'Happy Dots',img:'assets/tag-dots.jpg',rng:'Water-colour'},
-  {id:'penguins',nm:'Party Penguins',img:'assets/tag-penguins.jpg',rng:'Colour'},
-  {id:'rocket',nm:'Rocket',img:'assets/tag-rocket.jpg',rng:'Colour'},
-  {id:'octopus',nm:'Octopus',img:'assets/tag-octopus.jpg',rng:'Colour'},
-  {id:'bunny',nm:'Meadow Bunny',img:'assets/tag-bunny.jpg',rng:'Colour'},
-  {id:'blossom',nm:'Cherry Blossom',img:'assets/tag-blossom.jpg',rng:'Colour'},
-  {id:'roses',nm:'Rose Garden',img:'assets/tag-roses.jpg',rng:'Monochrome'},
-  {id:'dahlias',nm:'Dahlias',img:'assets/tag-dahlias.jpg',rng:'Monochrome'},
-  {id:'town',nm:'Townscape',img:'assets/tag-town.jpg',rng:'Monochrome'},
-  {id:'window',nm:'Windowsill',img:'assets/tag-window.jpg',rng:'Monochrome'}
-];
-document.getElementById('tagGrid').innerHTML=TAG_DESIGNS.map(d=>`
+// Designs are the gift-tag products; each is sold as a single variant.
+const designs = productsIn('gifttags');
+document.getElementById('tagGrid').innerHTML=designs.map(d=>{
+  const single = (d.variants||[]).find(v=>v.kind==='single') || {price:0, sub:''};
+  return `
   <figure class="tag-card">
-    <div class="imgwrap"><img src="${d.img}" alt="${d.nm} gift tag" loading="lazy"></div>
-    <div class="cn"><div><div class="nm">${d.nm}</div><div class="rng">${d.rng}</div></div><div class="pr">${ZAR(15)}</div></div>
-    <button class="add" onclick="Cart.add({id:'gifttag-${d.id}',title:'Gift Tag — ${d.nm}',img:'${d.img}',edition:'${d.rng} · single, on cardstock',price:15})">Add single</button>
-  </figure>`).join('');
+    <div class="imgwrap"><img src="${d.image}" alt="${d.title} gift tag" loading="lazy"></div>
+    <div class="cn"><div><div class="nm">${d.title}</div><div class="rng">${d.range}</div></div><div class="pr">${ZAR(single.price)}</div></div>
+    <button class="add" onclick="Cart.add({id:'${d.id}',title:'Gift Tag — ${d.title}',img:'${d.image}',edition:'${d.range} · single, on cardstock',price:${single.price}})">Add single</button>
+  </figure>`;
+}).join('');
 </script>
 </body>
 </html>
