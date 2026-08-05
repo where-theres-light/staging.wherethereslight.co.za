@@ -1,55 +1,121 @@
 name: Deploy to GitHub Pages
 
+# One workflow, committed identically to both repos. It branches on
+# github.repository so the same file behaves correctly in each:
+#
+#   where-theres-light/wherethereslight.co.za          (PRODUCTION)
+#     - main            → build `make prd`, deploy to wherethereslight.co.za
+#     - other branches  → build-check only, never deploys
+#
+#   where-theres-light/staging.wherethereslight.co.za  (STAGING)
+#     - any branch except prod → build `make dev`, deploy to
+#                                staging.wherethereslight.co.za
+#     - prod                   → promote: push HEAD to the production repo's
+#                                main, which triggers the production deploy above
+#
+# Pushing to main only ever updates staging. Production is promoted by merging
+# main into the `prod` branch and pushing it.
+#
+# Keeping the file identical in both repos matters: promotion pushes staging's
+# prod into prod's main, which carries this workflow file with it. If the two
+# ever diverged, a promotion would overwrite prod's workflow.
+
 on:
   push:
-    branches: ['**']
   workflow_dispatch:
 
-# Allow the GITHUB_TOKEN to deploy to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Single deploy target (one live staging site), so serialize runs across all
-# branches and never cancel an in-progress deploy.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  # PRODUCTION repo, main → build prod version and deploy to the live site.
+  deploy-prod:
+    if: github.repository == 'where-theres-light/wherethereslight.co.za' && github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Offline/staging build: strips the back-end (Supabase/PayFast) calls and
-      # composes the pages into ui/dist. No secrets needed.
+      - name: Build prod version
+        run: make prd
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ui/dist
+
+      - uses: actions/deploy-pages@v4
+        id: deployment
+
+  # PRODUCTION repo, non-main branch → validate the build only, never deploys.
+  build-check:
+    if: github.repository == 'where-theres-light/wherethereslight.co.za' && github.ref != 'refs/heads/main'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build prod version (no deploy)
+        run: make prd
+
+  # STAGING repo, any branch except `prod` → build the dev preview and deploy
+  # it to staging.wherethereslight.co.za. No secrets: `make dev` is offline.
+  deploy-staging:
+    if: github.repository == 'where-theres-light/staging.wherethereslight.co.za' && github.ref != 'refs/heads/prod'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Build dev version
         run: make dev
 
       - name: Set staging custom domain
         run: echo "staging.wherethereslight.co.za" > ui/dist/CNAME
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v5
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v3
         with:
-          # Deploy the composed build output, not the repo root.
           path: ui/dist
 
-  # Staging: publish on every branch push so the live site always reflects
-  # the most recent push.
-  deploy:
-    needs: build
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      - uses: actions/deploy-pages@v4
+        id: deployment
+
+  # STAGING repo, `prod` branch → promote to production by pushing to the prod
+  # repo's main. The prod repo's own workflow (deploy-prod above) then builds
+  # and deploys. Auth is a write-enabled deploy key registered on the prod repo,
+  # with its private half stored as the PROD_DEPLOY_KEY secret in this repo.
+  # The push is a plain fast-forward; it will be rejected (not forced) if the
+  # histories have diverged, which is a deliberate safety signal.
+  promote-prod:
+    if: github.repository == 'where-theres-light/staging.wherethereslight.co.za' && github.ref == 'refs/heads/prod'
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to production repo
+        env:
+          PROD_DEPLOY_KEY: ${{ secrets.PROD_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$PROD_DEPLOY_KEY" > ~/.ssh/prod_key
+          chmod 600 ~/.ssh/prod_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/prod_key -o IdentitiesOnly=yes"
+          git remote add production git@github.com:where-theres-light/wherethereslight.co.za.git
+          git push production HEAD:main

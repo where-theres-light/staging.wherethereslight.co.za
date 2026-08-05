@@ -45,19 +45,42 @@ function rebuildViews() {
 rebuildViews();
 
 //online-start
-/* Production: the catalog lives in Supabase. Refresh it, cache it under the same
-   key, rebuild the views and let listening pages re-render. The project URL and
-   publishable key are filled in when the back-end is provisioned. */
-const SUPABASE_URL  = window.__SUPABASE_URL  || '';
-const SUPABASE_ANON = window.__SUPABASE_ANON || '';
+/* Production: the catalogue is public, read-only data served straight from the
+   Supabase REST API (PostgREST) with the publishable key — no edge function.
+   Fetch the tables, reshape into the demo.js shape, cache it, rebuild the views
+   and let listening pages re-render. URL + key are public; the guard no-ops
+   until they are set. */
+const SUPABASE_URL  = 'https://ihwtedrjfusvpmkmrgxa.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_bsqtDsgESnBFIDsTDAprdQ_xoB4JK-M';
+const money = v => (v === null || v === undefined ? null : Number(v));
 async function refreshCatalog() {
-  if (!SUPABASE_URL) return;
+  if (SUPABASE_URL.includes('YOUR-PROJECT')) return;   // not provisioned yet
+  const rest = SUPABASE_URL + '/rest/v1';
+  const headers = { apikey: SUPABASE_ANON, Authorization: 'Bearer ' + SUPABASE_ANON };
   try {
-    const res = await fetch(SUPABASE_URL + '/functions/v1/catalog', {
-      headers: { 'Authorization': 'Bearer ' + SUPABASE_ANON }
-    });
-    if (!res.ok) return;
-    DATA = await res.json();
+    const [cRes, eRes, pRes] = await Promise.all([
+      fetch(`${rest}/categories?select=slug,title,eyebrow,intro,empty,category_tiers(key,name,sub,price)&order=sort&category_tiers.order=sort`, { headers }),
+      fetch(`${rest}/print_editions?select=key,kind,name,sub,price&order=sort`, { headers }),
+      fetch(`${rest}/products?select=id,category_slug,title,place,year,size,orientation,tag_range,blurb,image,image_large,sort,product_variants(key,kind,name,sub,price,status)&order=sort&product_variants.order=sort`, { headers }),
+    ]);
+    if (!cRes.ok || !eRes.ok || !pRes.ok) return;
+    const [cRows, eRows, pRows] = await Promise.all([cRes.json(), eRes.json(), pRes.json()]);
+    DATA = {
+      categories: Object.fromEntries(cRows.map(c => [c.slug, {
+        title: c.title, eyebrow: c.eyebrow, intro: c.intro,
+        ...(c.empty ? { empty: c.empty } : {}),
+        ...(c.category_tiers && c.category_tiers.length
+          ? { tiers: c.category_tiers.map(t => ({ ...t, price: money(t.price) })) } : {}),
+      }])),
+      editions: eRows.map(e => ({ ...e, price: money(e.price) })),
+      products: pRows.map(p => ({
+        id: p.id, category: p.category_slug, title: p.title,
+        place: p.place, year: p.year, size: p.size, orientation: p.orientation,
+        range: p.tag_range, blurb: p.blurb, image: p.image, imageLarge: p.image_large,
+        sort: p.sort,
+        variants: (p.product_variants || []).map(v => ({ ...v, price: money(v.price) })),
+      })),
+    };
     localStorage.setItem(CATALOG_KEY, JSON.stringify(DATA));
     rebuildViews();
     document.dispatchEvent(new Event('catalog:updated'));

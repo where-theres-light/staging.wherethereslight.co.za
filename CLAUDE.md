@@ -64,9 +64,11 @@ server-side).
 **`wtl_catalog`** and adapts it to the render model, so the render path is
 identical for both builds. What differs is who fills that key:
 
-- **`prd`** — `shared.js` fetches the catalog from Supabase, caches it into
-  `wtl_catalog`, and re-renders. That fetch is back-end code, so it lives inside
-  the `//online` markers and is present only in the production build.
+- **`prd`** — `shared.js` fetches the catalog straight from the **Supabase REST
+  API** (PostgREST; the catalogue tables are public-read, no edge function),
+  reshapes it into the render model, caches it into `wtl_catalog`, and
+  re-renders. That fetch is back-end code, so it lives inside the `//online`
+  markers and is present only in the production build.
 - **`dev`** — with the online calls stripped, nothing fetches. A **`demo.js`**
   file seeds `wtl_catalog` with demo data (reseeding when its `version` bumps).
   The `dev` build **injects `<script src="demo.js">` before `shared.js`** into
@@ -108,20 +110,19 @@ repo** and a separate **production repo**, and one Pages workflow governs both:
   (this repo). Pushes build the **dev** version and deploy it to
   **`staging.wherethereslight.co.za`**. No secrets are needed because `make dev`
   is the offline build.
-- **Production repo** — the live site at **`wherethereslight.co.za`**. Its
-  `main` builds the **prod** version (with the Supabase/PayFast secrets provided
-  as GitHub Actions secrets) and deploys to the live domain.
+- **Production repo** — `where-theres-light/wherethereslight.co.za`, the live
+  site at **`wherethereslight.co.za`**. Its `main` builds the **prod** version
+  and deploys to the live domain. No secrets are needed for the build (the
+  Supabase URL + publishable key are public, hard-coded in `shared.js`).
 
-The intended promotion flow (as in `anroleroux`): a single workflow file is
-committed **identically to both repos** and branches on `github.repository` so
-the same file behaves correctly in each. Pushing to `main` only ever updates
-**staging**. **Production is promoted** by pushing a promotion branch (e.g.
-`prod`) whose job pushes `HEAD` to the production repo's `main`, which triggers
-the production build-and-deploy. The cross-repo push uses a write-enabled deploy
-key stored as a secret, and is a plain fast-forward so a diverged history is
-rejected rather than force-pushed.
-
-> The current workflow (`.github/workflows/deploy-pages.yml`) is the simpler
-> single-repo version: it deploys every branch push straight from the repo root
-> to the one staging site. Bringing it onto the two-repo pattern above is part
-> of the same migration as the `make`/`ui` restructure.
+The promotion flow (as in `anroleroux`): a single workflow file
+(`.github/workflows/deploy-pages.yml`) is committed **identically to both
+repos** and branches on `github.repository` so the same file behaves correctly
+in each. Pushing to `main` only ever updates **staging** (any staging branch
+except `prod` deploys the dev preview). **Production is promoted** by merging
+`main` into the **`prod`** branch and pushing it: the staging repo's
+`promote-prod` job pushes `HEAD` to the production repo's `main`, which triggers
+its `deploy-prod` job. The cross-repo push uses a write-enabled deploy key
+(private half in the staging repo's **`PROD_DEPLOY_KEY`** secret, public half
+registered on the production repo), and is a plain fast-forward so a diverged
+history is rejected rather than force-pushed.
