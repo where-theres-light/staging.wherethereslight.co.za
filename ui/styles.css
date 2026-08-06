@@ -125,6 +125,24 @@ p{margin:0 0 1em;}
 .cart-total .lbl{font-size:.8rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);}
 .cart-total .amt{font-family:var(--serif);font-size:1.8rem;color:var(--green);}
 
+/* checkout form (rendered into the cart drawer) */
+.checkout-form{display:flex;flex-direction:column;gap:12px;padding:12px 0 24px;}
+.checkout-form h4{color:var(--green);font-family:var(--serif);font-size:1.5rem;font-weight:500;margin:4px 0 6px;}
+.checkout-form label{display:flex;flex-direction:column;gap:4px;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);}
+.checkout-form input{font-family:var(--sans);font-size:.95rem;color:var(--ink);background:var(--paper-2);border:1px solid var(--mist);border-radius:2px;padding:11px 12px;}
+.checkout-form input:focus{outline:none;border-color:var(--sage);}
+.checkout-form .co-row{display:flex;gap:12px;}
+.checkout-form .co-row label{flex:1;min-width:0;}
+.checkout-form .co-note{font-size:.78rem;color:var(--ink-soft);text-align:center;margin:4px 0 0;}
+.checkout-form .co-pay{width:100%;margin-top:8px;}
+.checkout-form .co-back{width:100%;}
+
+/* order-result pages (success / cancel) */
+.confirm{max-width:520px;margin:0 auto;padding:14vh var(--gutter) 20vh;text-align:center;}
+.confirm img{height:44px;width:auto;margin-bottom:28px;}
+.confirm h1{font-family:var(--serif);color:var(--green);font-size:clamp(2rem,5vw,3rem);font-weight:500;margin:0 0 14px;}
+.confirm p{color:var(--ink-soft);font-size:1.05rem;line-height:1.6;margin:0 auto 28px;max-width:42ch;}
+
 /* toast */
 .toast{position:fixed;bottom:28px;left:50%;transform:transl(-50%,20px);translate:-50% 20px;background:var(--green);color:var(--paper);padding:14px 24px;border-radius:3px;font-size:.88rem;box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:0;visibility:hidden;transition:.3s;z-index:100;}
 .toast.show{opacity:1;visibility:visible;translate:-50% 0;}

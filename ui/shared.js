@@ -99,6 +99,17 @@ const productsIn = cat => (DATA.products || [])
   .filter(p => p.category === cat)
   .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
 
+/* Run a catalog-dependent render once the data is available, and again whenever
+   it refreshes. With the demo seed (dev) or a warm cache the data is already
+   present so fn runs immediately; on the online build's cold cache fn waits for
+   the async fetch to dispatch `catalog:updated`. Renders must be idempotent. */
+const _catalogRenders = [];
+function withCatalog(fn){
+  _catalogRenders.push(fn);
+  if((DATA.products || []).length) fn();
+}
+document.addEventListener('catalog:updated', () => { for(const fn of _catalogRenders) fn(); });
+
 /* ---------- Collection grid renderer ---------- */
 function renderCollection(cat, mountId){
   const meta = CATEGORIES[cat] || {};
@@ -157,4 +168,74 @@ function toast(msg){
   t.textContent=msg; t.classList.add('show');
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
 }
-document.addEventListener('DOMContentLoaded',()=>Cart.render());
+/* ---------- Checkout ---------- */
+/* Base (offline/dev) behaviour: real payments need the back-end, so the preview
+   build just says so. The //online block below replaces it with the PayFast
+   flow in production. */
+const Checkout = {
+  start(){ toast('Checkout is not available in this preview'); }
+};
+
+//online-start
+Checkout.start = function(){
+  const items = Cart.read();
+  if(!items.length){ toast('Your cart is empty'); return; }
+  Cart.open();
+  const body = document.getElementById('cartBody');
+  if(!body) return;
+  body.innerHTML = `
+    <form id="coForm" class="checkout-form">
+      <h4>Shipping details</h4>
+      <label>Full name<input name="name" required autocomplete="name"></label>
+      <label>Email<input name="email" type="email" required autocomplete="email"></label>
+      <label>Address<input name="line1" required autocomplete="address-line1"></label>
+      <label>Suburb / complex<input name="line2" autocomplete="address-line2"></label>
+      <div class="co-row">
+        <label>City<input name="city" required autocomplete="address-level2"></label>
+        <label>Province<input name="province" autocomplete="address-level1"></label>
+      </div>
+      <div class="co-row">
+        <label>Postal code<input name="postcode" required autocomplete="postal-code"></label>
+        <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
+      </div>
+      <p class="co-note">Shipping ${ZAR(150)} · secure payment via PayFast.</p>
+      <button type="submit" class="btn btn-primary co-pay">Pay ${ZAR(Cart.total()+150)}</button>
+      <button type="button" class="btn btn-ghost co-back">Back to cart</button>
+    </form>`;
+  document.getElementById('coForm').addEventListener('submit', Checkout.submit);
+  body.querySelector('.co-back').addEventListener('click', ()=>Cart.render());
+};
+
+Checkout.submit = async function(e){
+  e.preventDefault();
+  const btn = e.target.querySelector('.co-pay');
+  btn.disabled = true; btn.textContent = 'Starting…';
+  const fd = new FormData(e.target);
+  const g = k => (fd.get(k) || '').toString().trim();
+  const buyer = { name: g('name'), email: g('email') };
+  const ship  = { line1:g('line1'), line2:g('line2'), city:g('city'), province:g('province'),
+                  postcode:g('postcode'), country:'South Africa', phone:g('phone') };
+  const items = Cart.read().map(l => ({ ref: l.ref, qty: 1 }));
+  try {
+    const res = await fetch(SUPABASE_URL + '/functions/v1/create-order', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', apikey: SUPABASE_ANON, Authorization: 'Bearer ' + SUPABASE_ANON },
+      body: JSON.stringify({ buyer, ship, items }),
+    });
+    const out = await res.json();
+    if(!res.ok){ toast(out.error || 'Could not start checkout'); btn.disabled=false; btn.textContent='Try again'; return; }
+    const pf = document.createElement('form');
+    pf.method = 'POST'; pf.action = out.process_url;
+    for(const [k,v] of Object.entries(out.fields)){
+      const i = document.createElement('input'); i.type='hidden'; i.name=k; i.value=v; pf.appendChild(i);
+    }
+    document.body.appendChild(pf); pf.submit();   // leaves the site for PayFast
+  } catch(err){ toast('Network error — please try again'); btn.disabled=false; btn.textContent='Try again'; }
+};
+//online-end
+
+document.addEventListener('DOMContentLoaded',()=>{
+  Cart.render();
+  const btn = document.getElementById('checkoutBtn');
+  if(btn) btn.onclick = () => Checkout.start();   // overrides the inline preview handler
+});

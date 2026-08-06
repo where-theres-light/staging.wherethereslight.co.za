@@ -118,7 +118,7 @@
       <div class="buy">
         <div class="buyrow">
           <div class="total"><small>Total</small><span id="pTotal">—</span></div>
-          <button class="btn btn-primary" id="addBtn" style="flex:1" onclick="addToCart()">Add to cart</button>
+          <button class="btn btn-primary" id="addBtn" style="flex:1">Add to cart</button>
         </div>
         <div class="reassure">
           <span><b>✓</b> Archival giclée, made to order</span>
@@ -181,6 +181,7 @@
 
 <script src="shared.js"></script>
 <script>
+withCatalog(()=>{
   const params=new URLSearchParams(location.search);
   const piece=byId(params.get('piece')) || CATALOG[0];
   let selected=null;
@@ -230,8 +231,9 @@
   function addToCart(){
     if(selected==null) return;
     const e=opts[selected];
-    Cart.add({id:piece.id,title:piece.title,img:piece.img,edition:e.name,price:e.price});
+    Cart.add({id:piece.id,title:piece.title,img:piece.img,edition:e.name,price:e.price,ref:{t:'v',p:piece.id,k:e.key}});
   }
+  document.getElementById('addBtn').onclick=addToCart;
 
   // more from collection (exclude current)
   document.getElementById('moreStrip').innerHTML=CATALOG.filter(p=>p.id!==piece.id).slice(0,4).map(p=>`
@@ -239,6 +241,7 @@
       <div class="mat"><img src="${p.img}" alt="${p.title}" loading="lazy"></div>
       <div class="nm">${p.title}</div><div class="pl2">${p.place}</div>
     </a></figure>`).join('');
+});
 </script>
 </body>
 </html>

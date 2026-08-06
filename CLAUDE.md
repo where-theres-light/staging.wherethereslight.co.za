@@ -9,15 +9,24 @@
 
 ## Build
 
-The site is built with `make`. There are two builds, driven by mode flags, and
-they differ only in whether the **back-end (online) calls are included**:
+The site is built with `make`. The builds differ in whether the **back-end
+(online) calls are included**:
 
-- **`make dev`** — the offline/staging build. It **strips the back-end calls**
-  (Supabase auth/DB and PayFast checkout wiring) so the staging site runs with
-  no secrets and no live payment/data traffic.
-- **`make prd`** — the production build. It **keeps the back-end calls** and
-  writes the production `CNAME`.
+- **`make dev`** — the offline preview. It **strips the back-end calls**
+  (Supabase catalog fetch + PayFast checkout) and seeds the catalogue from
+  `demo.js`, so it runs with no secrets and no live traffic. Used by every
+  staging branch **except `main`**.
+- **`make stg`** — the online build for the **staging site's `main`**. Keeps the
+  back-end calls (no demo seed). It talks to the real Supabase project, and
+  PayFast runs in **sandbox** (the edge functions pick sandbox vs live from the
+  request origin — staging → sandbox). The staging `CNAME` is written by the
+  workflow.
+- **`make prd`** — the production build. Keeps the back-end calls, writes the
+  production `CNAME`; PayFast runs **live** (prod origin).
 - **`make clean`** (`make c`) — removes the build output (`ui/dist`).
+
+`stg` and `prd` are the same online build; they differ only in the `CNAME`, and
+the sandbox-vs-live choice is made server-side by origin, not by the build.
 
 ### How online calls are stripped
 

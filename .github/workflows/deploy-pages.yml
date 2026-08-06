@@ -68,8 +68,9 @@ jobs:
       - name: Build prod version (no deploy)
         run: make prd
 
-  # STAGING repo, any branch except `prod` → build the dev preview and deploy
-  # it to staging.wherethereslight.co.za. No secrets: `make dev` is offline.
+  # STAGING repo, any branch except `prod` → deploy to staging.wherethereslight.co.za.
+  #   main            → `make stg` (online build; PayFast sandbox via origin)
+  #   other branches  → `make dev` (offline preview, no back-end)
   deploy-staging:
     if: github.repository == 'where-theres-light/staging.wherethereslight.co.za' && github.ref != 'refs/heads/prod'
     environment:
@@ -79,8 +80,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build dev version
-        run: make dev
+      - name: Build (online on main, offline preview elsewhere)
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then make stg; else make dev; fi
 
       - name: Set staging custom domain
         run: echo "staging.wherethereslight.co.za" > ui/dist/CNAME

@@ -9,7 +9,7 @@ SRC  := ui
 DIST := ui/dist
 MAP  := make/web.map
 
-.PHONY: dev prd stage clean c
+.PHONY: dev stg prd stage clean c
 
 # ---- dev: offline/staging build (back-end calls stripped) ----
 dev: stage
@@ -18,6 +18,12 @@ dev: stage
 	@cp $(SRC)/demo.js $(DIST)/
 	@sed -i 's#<script src="shared.js"></script>#<script src="demo.js"></script>\n<script src="shared.js"></script>#' $(DIST)/*.html
 	@echo "Built dev (offline) → $(DIST)"
+
+# ---- stg: online build for the staging site (back-end calls kept, no demo) ----
+# Same online code as prd; the staging CNAME is written by the Pages workflow.
+# PayFast runs in sandbox for the staging origin (chosen by the edge function).
+stg: stage
+	@echo "Built stg (online) → $(DIST)"
 
 # ---- prd: production build (back-end calls kept) ----
 prd: stage
@@ -33,6 +39,8 @@ stage: clean
 	$(call compose,$(SRC)/gift-tags.html,$(MAP),$(DIST)/gift-tags.html)
 	$(call compose,$(SRC)/townscapes.html,$(MAP),$(DIST)/townscapes.html)
 	$(call compose,$(SRC)/upcoming.html,$(MAP),$(DIST)/upcoming.html)
+	$(call compose,$(SRC)/success.html,$(MAP),$(DIST)/success.html)
+	$(call compose,$(SRC)/cancel.html,$(MAP),$(DIST)/cancel.html)
 	@cp $(SRC)/styles.css $(SRC)/shared.js $(DIST)/
 	@cp -r $(SRC)/assets $(DIST)/assets
 
