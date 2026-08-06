@@ -220,4 +220,4 @@ p{margin:0 0 1em;}
 .tag-card .add{margin-top:12px;border:1px solid color-mix(in srgb,var(--green) 26%,transparent);background:none;color:var(--green);font-size:.78rem;letter-spacing:.02em;padding:9px 0;transition:.2s;}
 .tag-card .add:hover{background:var(--green);color:var(--paper);}
 @media(max-width:900px){.tag-grid{grid-template-columns:repeat(3,1fr);}}
-@media(max-width:560px){.tag-grid{grid-template-columns:1fr 1fr;}}
+@media(max-width:560px){.tag-grid{grid-template-columns:1fr 1fr;}.tag-card{padding-left:6px;padding-right:6px;}}
