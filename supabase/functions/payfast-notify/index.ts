@@ -22,9 +22,10 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 function pfEnv(sandbox: boolean) {
+  const pass = (k: string) => (Deno.env.get(k) ?? '').trim();
   return sandbox
-    ? { passphrase: Deno.env.get('PF_SANDBOX_PASSPHRASE') ?? '', validate: 'https://sandbox.payfast.co.za/eng/query/validate' }
-    : { passphrase: Deno.env.get('PF_PASSPHRASE')         ?? '', validate: 'https://www.payfast.co.za/eng/query/validate' };
+    ? { passphrase: pass('PF_SANDBOX_PASSPHRASE'), validate: 'https://sandbox.payfast.co.za/eng/query/validate' }
+    : { passphrase: pass('PF_PASSPHRASE'),         validate: 'https://www.payfast.co.za/eng/query/validate' };
 }
 
 const pfEncode = (v: unknown) =>

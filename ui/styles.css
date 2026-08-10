@@ -70,9 +70,15 @@ p{margin:0 0 1em;}
 .nav-item{position:relative;}
 .nav-item>a{display:flex;align-items:center;gap:5px;}
 .nav-item .caret{font-size:.6rem;transition:transform .2s;color:var(--sage);}
-.nav-item:hover .caret{transform:rotate(180deg);}
 .submenu{position:absolute;top:100%;left:50%;transform:translateX(-50%);padding-top:14px;opacity:0;visibility:hidden;transition:opacity .18s, visibility .18s;}
-.nav-item:hover .submenu{opacity:1;visibility:visible;}
+/* Hover-open only on real hover devices; on touch a tap toggles `.open` so the
+   first tap can't ghost-click through to the first submenu item. */
+@media (hover: hover){
+  .nav-item:hover .caret{transform:rotate(180deg);}
+  .nav-item:hover .submenu{opacity:1;visibility:visible;}
+}
+.nav-item.open .caret{transform:rotate(180deg);}
+.nav-item.open .submenu{opacity:1;visibility:visible;}
 .submenu-inner{background:var(--paper);border:1px solid var(--mist);box-shadow:0 20px 40px -24px rgba(45,54,68,.35);min-width:190px;padding:8px;}
 .submenu-inner a{display:block;padding:10px 14px;font-size:.86rem;color:var(--ink-soft);white-space:nowrap;}
 .submenu-inner a:hover{background:var(--paper-2);color:var(--green);}

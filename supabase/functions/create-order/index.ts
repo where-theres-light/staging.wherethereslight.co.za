@@ -24,25 +24,26 @@ const ORIGINS: Record<string, { sandbox: boolean }> = {
 };
 
 function pfConfig(sandbox: boolean) {
+  const env = (k: string, d = '') => (Deno.env.get(k) ?? d).trim();
   return sandbox
     ? {
-        merchant_id:  Deno.env.get('PF_SANDBOX_MERCHANT_ID')  ?? '10000100',
-        merchant_key: Deno.env.get('PF_SANDBOX_MERCHANT_KEY') ?? '46f0cd694581a',
-        passphrase:   Deno.env.get('PF_SANDBOX_PASSPHRASE')   ?? '',
+        merchant_id:  env('PF_SANDBOX_MERCHANT_ID', '10000100'),
+        merchant_key: env('PF_SANDBOX_MERCHANT_KEY', '46f0cd694581a'),
+        passphrase:   env('PF_SANDBOX_PASSPHRASE'),
         process:      'https://sandbox.payfast.co.za/eng/process',
       }
     : {
-        merchant_id:  Deno.env.get('PF_MERCHANT_ID')  ?? '',
-        merchant_key: Deno.env.get('PF_MERCHANT_KEY') ?? '',
-        passphrase:   Deno.env.get('PF_PASSPHRASE')   ?? '',
+        merchant_id:  env('PF_MERCHANT_ID'),
+        merchant_key: env('PF_MERCHANT_KEY'),
+        passphrase:   env('PF_PASSPHRASE'),
         process:      'https://www.payfast.co.za/eng/process',
       };
 }
 
-// PHP urlencode-compatible: spaces as '+', uppercase hex, encode the extra chars
-// encodeURIComponent leaves alone. Must match PayFast's own encoding.
+// PHP urlencode-compatible: trim (PayFast signs urlencode(trim(value))), spaces
+// as '+', uppercase hex, and encode the extra chars encodeURIComponent leaves.
 const pfEncode = (v: unknown) =>
-  encodeURIComponent(String(v))
+  encodeURIComponent(String(v).trim())
     .replace(/%20/g, '+')
     .replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 
@@ -153,9 +154,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
     ['custom_str1',   order.order_token],
   ] as [string, string][]).filter(([, v]) => v !== '' && v != null);
 
-  let sigStr = pairs.map(([k, v]) => `${k}=${pfEncode(v)}`).join('&');
-  if (pf.passphrase) sigStr += `&passphrase=${pfEncode(pf.passphrase)}`;
+  const fieldStr = pairs.map(([k, v]) => `${k}=${pfEncode(v)}`).join('&');
+  const sigStr = pf.passphrase ? `${fieldStr}&passphrase=${pfEncode(pf.passphrase)}` : fieldStr;
   const signature = await md5(sigStr);
+
+  // Set PF_DEBUG=true to log the signed field string (not the passphrase value)
+  // to the function logs, to compare byte-for-byte on a signature mismatch.
+  if (Deno.env.get('PF_DEBUG') === 'true') {
+    console.log('[pf] sandbox=%s fields=%s', sandbox, fieldStr);
+    console.log('[pf] passphrase set=%s len=%d signature=%s', pf.passphrase.length > 0, pf.passphrase.length, signature);
+  }
 
   const fields = Object.fromEntries(pairs);
   fields.signature = signature;

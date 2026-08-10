@@ -238,4 +238,22 @@ document.addEventListener('DOMContentLoaded',()=>{
   Cart.render();
   const btn = document.getElementById('checkoutBtn');
   if(btn) btn.onclick = () => Checkout.start();   // overrides the inline preview handler
+
+  // Mobile nav: on touch (no hover) a tap toggles the submenu instead of relying
+  // on :hover, which tap-throughs to the first item. Submenu links navigate.
+  if(!matchMedia('(hover: hover)').matches){
+    document.querySelectorAll('.nav-item > a').forEach(link=>{
+      const item = link.parentElement;
+      if(!item.querySelector('.submenu')) return;
+      link.addEventListener('click', e=>{
+        e.preventDefault();
+        const open = item.classList.contains('open');
+        document.querySelectorAll('.nav-item.open').forEach(o=>o.classList.remove('open'));
+        if(!open) item.classList.add('open');
+      });
+    });
+    document.addEventListener('click', e=>{
+      if(!e.target.closest('.nav-item')) document.querySelectorAll('.nav-item.open').forEach(o=>o.classList.remove('open'));
+    });
+  }
 });
