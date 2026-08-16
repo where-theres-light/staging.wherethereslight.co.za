@@ -93,7 +93,7 @@
 </header>
 
 <main class="wrap">
-  <nav class="crumbs"><a href="index.html">Home</a><span class="sep">/</span><a href="index.html#collection">The Collection</a><span class="sep">/</span><span class="here" id="crumbHere">—</span></nav>
+  <nav class="crumbs"><a href="index.html">Home</a><span class="sep">/</span><a id="crumbCollection"></a><span class="sep">/</span><span class="here" id="crumbHere">—</span></nav>
 
   <section class="product">
     <div class="viewer">
@@ -182,10 +182,13 @@ withCatalog(()=>{
 
   document.title=`${piece.title} — Where There's Light`;
   document.getElementById('crumbHere').textContent=piece.title;
+  const crumbCollection=document.getElementById('crumbCollection');
+  if(piece.cat==='amelias'){ crumbCollection.href='amelias-house.html'; crumbCollection.textContent="Amelia's House"; }
+  else{ crumbCollection.href='townscapes.html'; crumbCollection.textContent='Townscapes'; }
   document.getElementById('pImg').src=piece.large||piece.img;
   document.getElementById('pImg').alt=`${piece.title} townscape by Laurita`;
   document.getElementById('pTitle').textContent=piece.title;
-  document.getElementById('pPlace').textContent=`${piece.place} · ${piece.year}`;
+  document.getElementById('pPlace').textContent=piece.place;
   document.getElementById('pEyebrow').textContent = piece.cat==='amelias' ? "Amelia's House · miniature interior" : 'Hand-drawn townscape';
   document.getElementById('pBlurb').textContent=piece.blurb;
 
