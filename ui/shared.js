@@ -130,7 +130,7 @@ function renderCollection(cat, mountId){
     const pricing = `<div class="from">from ${ZAR(p.fromPrint)}</div>` + (p.original.status==='sold'
       ? '<span class="sold">Original sold</span>'
       : `<div class="amt">${ZAR(p.original.price)}</div>`);
-    return `<figure class="piece${feature}"><a href="product.html?piece=${p.id}"><div class="mat"><div class="imgwrap"><img src="${p.img}" alt="${p.title} townscape" loading="lazy"></div></div><figcaption class="cap"><div><div class="ttl">${p.title}</div><div class="place">${p.place} · ${p.year}</div></div><div class="pricing">${pricing}</div></figcaption></a></figure>`;
+    return `<figure class="piece${feature}"><a href="product.html?piece=${p.id}"><div class="mat"><div class="imgwrap"><img src="${p.img}" alt="${p.title} townscape" loading="lazy"></div></div><figcaption class="cap"><div><div class="ttl">${p.title}</div><div class="place">${p.place}</div></div><div class="pricing">${pricing}</div></figcaption></a></figure>`;
   }).join('');
 }
 

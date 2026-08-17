@@ -71,7 +71,7 @@ const DEMO = {
     townscapes: {
       title: 'Townscapes',
       eyebrow: 'The flagship range',
-      intro: 'Our flagship range — collections of towns drawn in pen on high-quality Fabriano paper. Every gable, fountain and garden held inside a dome of light. We are always on the lookout for more beautiful places to capture.'
+      intro: 'Our flagship range — collections of towns drawn in pen on high-quality Fabriano paper. We are always on the lookout for more beautiful places to capture.'
     },
     amelias: {
       title: "Amelia's House",
