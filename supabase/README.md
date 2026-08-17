@@ -100,9 +100,10 @@ type is reported as "already on the list".
   `CHECK` validates the email; `subscribe_type` is a `SMALLINT` checked to
   `IN (1, 2)`; a unique index on `(lower(email), subscribe_type)` de-dupes).
 - **`functions/signup/`** — validates the email, rate-limits by client IP
-  (default **5 signups per IP per hour**), and inserts the row. A duplicate
-  returns `{ ok: true, already: true }`, which the page shows as "already on the
-  list"; over the limit returns `429`.
+  **per subscribe type** (default **5 signups per IP per hour**, counted
+  separately for each type so one doesn't lock out the other), and inserts the
+  row. A duplicate returns `{ ok: true, already: true }`, which the page shows as
+  "already on the list"; over the limit returns `429`.
 - **`functions/_shared/rate-limit.ts`** + **`../db/004_rate_limits.sql`** — the
   rate limiter (see below).
 - **`ui/shared.js`** (inside the `//online` block) POSTs to

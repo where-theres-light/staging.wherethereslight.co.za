@@ -62,9 +62,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
 
-  // Rate-limit by client IP. Fail open if the limiter itself errors, so a
-  // transient database problem never blocks a genuine signup.
-  const rl = await rateLimit(supabase, `signup:${clientIp(req)}`, {
+  // Rate-limit by client IP, per subscribe type — so hitting the limit on one
+  // (e.g. the Grasse notification) doesn't lock the other out. Fail open if the
+  // limiter itself errors, so a transient database problem never blocks a
+  // genuine signup.
+  const rl = await rateLimit(supabase, `signup:${subscribeType}:${clientIp(req)}`, {
     limit: RL_LIMIT, windowSeconds: RL_WINDOW,
   });
   if (rl && !rl.allowed)
