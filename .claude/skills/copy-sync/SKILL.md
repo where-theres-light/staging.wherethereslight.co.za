@@ -1,108 +1,159 @@
 ---
 name: copy-sync
-description: Check, compare, or update the website's copy against its Google Docs source of truth. Use when the user asks to check/compare/verify/sync/update copy, text, wording, or content on the site (home page or an article) — the Google Doc is authoritative; the HTML in ui/ is the target.
+description: Check, compare, or update the Where There's Light site copy against its Google Docs source of truth. Use when the user asks to check/compare/verify/sync/update copy, text, wording, prices, or content on the site (home, townscapes, Amelia's House, gift tags, or the footer) — the Google Doc is authoritative; the HTML in ui/ (and the catalog in ui/demo.js) is the target.
 ---
 
-# Copy sync — Google Docs → website HTML
+# Copy sync — Google Doc → website
 
-The user writes and maintains site copy in **Google Docs** (the source of
-truth). Each page has one doc in the Drive **"Website"** folder. This skill
-maps a doc to its HTML file and helps **check / compare / update** the copy.
+Laurita writes and maintains the site copy in **one Google Doc** (the source of
+truth). This skill maps that doc to the repo's HTML and catalog and helps
+**check / compare / update** the copy.
 
-Direction is **Doc → HTML**. Edit the HTML to match the doc, never the reverse,
+Direction is **Doc → site**. Edit the site to match the doc, never the reverse,
 unless the user explicitly asks to update the doc.
 
-## 1. Find the doc
+## 1. Find and read the doc
 
-The "Website" folder id is `15s2tzxVQ5Lh6acMC_cVfdommOlCL-d5Z`. List/search it
-with the Google Drive tools, then read with `read_file_content`:
+The copy lives in a **single** Google Doc — all pages in one file, split by
+markdown `#` headings:
 
-- List docs: `search_files` with `parentId = '15s2tzxVQ5Lh6acMC_cVfdommOlCL-d5Z'`
-  (if the id ever changes: `title = 'Website' and mimeType = 'application/vnd.google-apps.folder'`).
-- Read a doc: `read_file_content` with its `fileId`.
+- **Title:** `Where Theres Light`
+- **Owner:** `laurita@wherethereslight.co.za`
+- **File id:** `1DydOoknEx9XidtnfGkm5zhtpu21Ax6GiUerEuasPnZI`
 
-**Doc → file mapping** (by doc title, unless the doc has a `File:` field):
+Read it with the Google Drive tools: `read_file_content` with that `fileId`.
+The doc is shared with the connected Drive account — it is **not** in a Drive
+folder we own. If the id ever changes, relocate it with `search_files`:
+`title = 'Where Theres Light' and owner = 'laurita@wherethereslight.co.za'`.
+If the search returns nothing, the doc has not been shared with the connected
+account — tell the user to share it (or reconnect Drive as laurita) rather than
+guessing at another file.
 
-| Doc title | HTML file |
+## 2. Doc section → target mapping
+
+Each top-level markdown heading in the doc is one page. The doc also carries a
+`Page:` field (e.g. `Page: /`) naming the live path.
+
+| Doc heading | Target |
 |---|---|
-| `home` | `ui/home.html` |
-| `pic` | `ui/articles/pic.html` |
-| any article | `ui/articles/<name>.html` |
+| `# Home Page` (`Page: /`) | `ui/index.html` |
+| `# FOOTER` | the `<footer class="site-foot">` block — **shared on every page** |
+| `# Townscapes` | `ui/townscapes.html` **+ catalog** (see below) |
+| `# Amelia's House` | `ui/amelias-house.html` **+ catalog** |
+| `# Gift Tags` | `ui/gift-tags.html` **+ catalog** |
 
-If a doc has a `File:` field (e.g. `File: lsv.html`), that wins over the title.
-Edit the source files in `ui/` — **not** `ui/dist/` (that folder is generated).
+Edit the source files in **`ui/`** — never `ui/dist/` (that folder is generated
+by `make` and git-ignored).
 
-**`home.html` renders each doc twice:** once in `#alm-layer` (almanac) and once
-in `#cos-layer` (cosmos). Shared fields (Title, Description, headings, discipline
-bodies) feed both layers; some fields are layer-specific (`Almanac eyebrow:` vs
-`Cosmos eyebrow:`). Check **both** layers. Wording may differ slightly per layer
-by design — flag it, don't force them identical.
+### The collection pages are catalog-driven — this is the big one
 
-## 2. What is copy vs. what is formatting
+`townscapes.html`, `amelias-house.html`, and `gift-tags.html` share a
+`coll-hero` whose `#collEyebrow` and `#collTitle` are **empty in the HTML**;
+`shared.js` fills them at runtime from the catalog. The **works** on those pages
+(each `WORK` block — the artwork title, place, blurb, quote, price) are catalog
+rows too, not static HTML. So for these pages the copy target is usually the
+**catalog data**, not the page markup:
 
-**Paragraphs → verbatim.** A plain prose block with no `Label:` prefix, not
-wrapped in `%…%`, and not part of an `Insert` block is body copy. It must appear
-**word-for-word** in the HTML. Report any difference (e.g. the doc's
-"driving success sincere leadership" vs the HTML's "driving success *through*
-sincere leadership").
+- **`dev` build (this staging repo):** the catalog is seeded from **`ui/demo.js`**
+  into `localStorage`. Edit the matching object there.
+- **`prd` build:** the catalog comes from the **Supabase** `categories` and
+  `products` tables. Static-HTML edits do **not** change catalog copy in prod —
+  the DB is authoritative there.
 
-**Everything below is formatting / instructional matter** — map its value to the
-right HTML slot, but don't treat the label or markers as literal text:
+Field → catalog mapping for a collection page:
 
-- **Field lines** `Label: value` — structured copy for a specific slot. Seen so
-  far: `Title:`→`<h1>`, `Description:`→lede/blurb `<p>`, `Almanac eyebrow:` /
-  `Cosmos eyebrow:`→eyebrow, `Heading:`→section `<h2 class="title">`,
-  `Explanation:`→`.section-explain`, `Mark:`/`Scale:`/`Name:`→discipline card,
-  `Caption:`→`<figcaption>`, `CTA:`→button, `ID:`→element id, `Label:`/`Input:`→
-  form control, `Meta Bar:` / `Table of Contents:` / `Series:` / `File:`→page
-  meta. The **label** is structural; only the **value** is content.
-- **`%…%` inline instructions:**
-  - `%emphasize X%` → wrap X in `<em>` in that slot.
-  - `%class ref num rom%` → apply classes / numbering to the element.
-  - `%yes%` / `%no%` → a boolean (e.g. `Table of Contents: %yes%`).
-- **`%Start of X block …%` … `%End of X block%`** → a callout/component (WARNING,
-  INSIGHT, …), optionally with `ID:`. The prose **inside** it is a paragraph →
-  verbatim.
-- **`%% … %%`** → an author note to himself. **Ignore** it (e.g. "%% Ignore the
-  following two blocks for now %%").
-- **`<ref word id>` / `<insight word id>`** → a cross-reference. The first token
-  is the **label word** ("section", "figure", "Figure", "Insight"), the rest is
-  the target **id**. It renders as `<span class="figure-number" data-fid="id">word</span>`
-  — the word lives **inside** the span so the whole "word number" becomes one link
-  ("`<ref figure diamondDisciplines>`" → clickable "figure 1"). The span is empty
-  in the source; `initRef` fills in the number at runtime, so don't expect the
-  resolved number in the HTML. An older form put the word as plain text *before*
-  the span (`figure <span class="figure-number" data-fid="…"></span>`) — treat that
-  as equivalent when comparing, but write the word-inside-span form.
-- **`<pill X>`** → a pill component (`<span class="pill …">X</span>`).
-- **`<date>`, `<version dropdown>`, `_space_`, `<space>`** → dynamic/interactive
-  placeholders; no static text to match.
-- **`Insert figure` / `Insert Input Field` / `Insert Output …` blocks** (with
-  their own `Description:` / `ID:` / `Caption:` / `Label:` fields) → an inserted
-  component. The `Description:` under an `Insert` is a **spec for building the
-  figure/widget**, not body copy — don't paste it into the page.
-- **Markdown headings `#` / `##`** → section / subsection structure (`#`→a
-  `<section>`, `##`→a card/subsection), not literal headings.
+| Doc field / block | Catalog field |
+|---|---|
+| `Eyebrow:` | `categories[].eyebrow` |
+| `Header:` (the page title) | `categories[].title` |
+| the intro paragraph under the header | `categories[].intro` |
+| a `WORK` block's name line | `products[].title` |
+| its place line (e.g. `Bellville, Cape Town`) | `products[].place` |
+| its year | `products[].year` |
+| its description / artist quote | `products[].blurb` |
+| price lines (`From R1500`, `R 360`, …) | `product_variants[].price` |
 
-## 3. Workflow
+**Only the gift-tags page has static card copy in HTML:** the three range cards
+(`Water-colour range`, `Signature monochrome`, `Stationery staples`) and the
+"The designs" heading are hard-coded in `ui/gift-tags.html`. Those `CARD` blocks
+in the doc map to that markup. The purchasable tiers (`Singles`, `Mono set of 5`,
+`Mixed set of 10`) and the individual tag designs are catalog data.
 
-- **Check / compare:** read the doc and the mapped HTML file(s). Walk the doc
-  top to bottom; for each paragraph confirm a verbatim match, for each field
-  confirm the value is in the right slot. Produce a list of discrepancies:
-  missing copy, drifted wording, extra HTML text not in the doc. For `home.html`,
-  check both the almanac and cosmos layers.
-- **Update:** apply the doc's copy to the HTML. Preserve the existing markup and
-  the `%…%` / `<…>` / `Insert` conventions above — only the copy changes. Match
-  paragraphs verbatim; place field values in their slots.
+The **home page** (`ui/index.html`) is static HTML end to end — its hero,
+welcome, about, and "three ways to own a piece" copy all live in the markup.
 
-## 4. Ask when unsure
+## 3. What is copy vs. what is a marker
 
-The user explicitly wants to be asked rather than guessed at. Ask when:
+**Prose paragraphs → verbatim.** A plain block with no `Label:` prefix, not a
+`SECTION`/`WORK`/`CARD`/`IMAGE`/`LOGO` marker, not wrapped in `%…%`, and not an
+author note is body copy. It must appear **word-for-word** in the target. Report
+any drift (e.g. the doc's originals price `From R1500` vs the HTML's
+`from R 8 600`, or a reworded footer blurb).
 
-- A doc has no clear target file (title doesn't match and there's no `File:`).
-- A marker or `Insert` block you haven't seen before appears, or its intent is
-  ambiguous.
-- Almanac and cosmos copy differ and it's unclear whether that's intentional.
-- The doc reorders/removes a section, or copy exists in the HTML but not the doc
-  (delete? keep?).
-- A field value seems to belong to a slot that doesn't exist in the HTML.
+Everything below is **structure / instruction** — map its value to the right
+slot; don't treat the marker itself as literal text:
+
+- **`Page: <path>`** — the live URL of the section that follows. Routing hint,
+  not copy.
+- **`SECTION`** — starts a new `<section>`. The `class:` / `Class:` line right
+  after it (e.g. `class:hero`, `Class:ways`) names that section's CSS class —
+  match it to the `<section class="…">` in the HTML. Label case varies in the
+  doc; treat it case-insensitively.
+- **Field lines `Label: value`** — structured copy for one slot. Seen so far:
+  `Eyebrow:` → `<span class="eyebrow">`; `Heading:` → the section `<h2>`;
+  `Header:` → a collection page's `<h1>`/`#collTitle`; `Lede:` → the hero lede
+  `<p>`; `Scroll-que:` → the scroll-cue line; `Count:` → the `.sec-head .count`
+  line. The **label** is structural; only the **value** is content.
+- **`IMAGE` + `file:<name>`** — an image; `<name>` is an asset in `ui/assets/`
+  (e.g. `file:laurita-photo.jpg` → `<img src="assets/laurita-photo.jpg">`).
+  No prose to match; confirm the asset exists.
+- **`LOGO`** — the logo component (`<img class="logo|foot-logo" src="assets/logo.svg">`).
+- **`WORK`** — one artwork/portfolio item → a catalog product (see §2).
+- **`CARD`** — one gift-tag range card (see §2, gift-tags).
+- **`%emphasise X%` / `%emphasised%`** — wrap X in `<em>` in that slot
+  (British spelling — it's `emphasise`, not `emphasize`). E.g.
+  `Where there's light. %emphasise light.%` → `Where there's <em>light.</em>`.
+  A bare `%emphasised%` after a line marks that line's emphasis without
+  repeating the word.
+- **`!!!remove`** (often escaped in the export as `\!\!\!remove`) — an author
+  instruction that this line/element is **not live**: do **not** render it, and
+  if it's currently in the HTML, that's a discrepancy to flag. (The hero `Lede:`
+  and `Scroll-que:` are both marked `!!!remove`, and the shipped hero correctly
+  omits them.) `!!!remove year` next to a work means drop just the year.
+- **`<ref "label" target>`** — a link → `<a href="target">label</a>`. Target
+  forms seen: a bare path (`/townscapes.html`), `link:gift-tags.html`,
+  `mailto:…`, and a full `https://…` URL. The quotes may be curly (`“ ”`).
+- **`% author note %`** — a single-`%` aside to self (e.g.
+  `% the footer is the same on all the pages %`, `% column 1 %`). **Ignore** it;
+  it's not copy and not an emphasis marker.
+- **`**bold**`** — markdown bold, used for sub-headings inside a column or
+  section (`**Shop**`, `**Water-colour range**`). Maps to the corresponding
+  `<h3>`/`<h4>`/`<strong>` in the target, not literal asterisks.
+- **Markdown `#` heading** — a page boundary inside the doc (see §2).
+
+## 4. Workflow
+
+- **Check / compare:** read the doc and the mapped target(s). Walk the doc top to
+  bottom; for each paragraph confirm a verbatim match, for each field confirm the
+  value sits in the right slot. Produce a discrepancy list: missing copy, drifted
+  wording, wrong price, extra site text not in the doc, or an element the doc
+  marks `!!!remove` that's still live. For a collection page, check the **catalog**
+  (`ui/demo.js`) as well as the HTML — much of its copy lives there.
+- **Update:** apply the doc's copy to the target. Preserve the surrounding markup
+  and the doc conventions above — only the copy changes. Match prose verbatim;
+  place field values in their slots; put collection copy/prices in `ui/demo.js`
+  (and note to the user that prod needs the same change in Supabase). After
+  editing, you can verify the composed output with `make dev`.
+
+## 5. Ask when unsure
+
+Laurita prefers being asked over guessed at. Ask when:
+
+- A doc section has no clear target (heading doesn't match a page and there's no
+  `Page:`), or a `WORK`/`CARD` block can't be matched to a catalog row.
+- A marker or block you haven't seen before appears, or its intent is ambiguous.
+- The doc reorders/removes a section, or copy exists on the site but not the doc
+  (delete it, or keep it?).
+- A price or field in the doc would need a **Supabase** change to take effect in
+  production, so the user knows the `demo.js` edit only covers staging.
+- A field value seems to belong to a slot that doesn't exist on the page.
