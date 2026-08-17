@@ -140,3 +140,42 @@ so the count is kept in the database, where it is incremented atomically:
 
 Old buckets are harmless but accumulate; a scheduled job (e.g. pg_cron) can
 purge them — see the cleanup query at the foot of `db/004_rate_limits.sql`.
+
+## Page-visit metrics
+
+Anonymous page-visit tracking, written only by the **`track` edge function**
+(service role) — both tables are RLS on with no policies, so the browser can
+neither read nor write them, and the owner reads them via the dashboard.
+
+- **`../db/005_metrics.sql`** — two tables:
+  - **`sessions`** — one anonymous browser, unique on `(token, ip)`: a random
+    token kept in the visitor's `localStorage` paired with the server-seen IP.
+    Geolocated **once**, when first recorded.
+  - **`page_visits`** — one row per page view, referencing a session.
+- **`functions/track/`** — pairs the token with the client IP, rate-limits by IP
+  (**100 visits per IP per 10 min**), geolocates the IP on the session's first
+  sight, and appends the visit. A returning session just bumps `last_seen`.
+- **`functions/_shared/geo.ts`** — the IP → location lookup. Uses **ipapi.co**
+  (free, no key) by default; override with the `GEO_API_URL` / `GEO_API_KEY`
+  function secrets. It is best-effort — any failure or a private/unknown IP just
+  stores the session without a location.
+- **`ui/shared.js`** (inside the `//online` block) fires a fire-and-forget
+  beacon to `functions/v1/track` on every page load. Metrics never block or
+  affect the page; the offline `dev` build strips the call entirely.
+
+### Setup
+
+1. Run **`db/005_metrics.sql`** in the SQL editor (needs `db/004_rate_limits.sql`
+   for the limiter). Idempotent.
+2. Deploy the function with JWT verification off:
+
+   ```bash
+   supabase functions deploy track --no-verify-jwt
+   ```
+
+   No secrets are required (a default public geo service is used); set
+   `GEO_API_URL` / `GEO_API_KEY` only to point at a different provider.
+
+Both staging and production share one project, so staging visits are recorded
+alongside production ones; the `sessions.ip` / geolocation let you tell them
+apart if needed.

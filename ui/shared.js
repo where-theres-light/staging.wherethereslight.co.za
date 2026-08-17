@@ -362,3 +362,26 @@ document.addEventListener('DOMContentLoaded',()=>{
     });
   }
 });
+
+//online-start
+/* Anonymous page-visit metrics. A random per-browser session token (localStorage)
+   plus the server-seen IP identify a session; the `track` edge function records
+   the visit and geolocates the IP. Fire-and-forget: it never blocks the page and
+   swallows every error, so metrics can't affect the browsing experience. */
+(function trackVisit(){
+  try{
+    const KEY = 'wtl_session';
+    let token = localStorage.getItem(KEY);
+    if(!token){
+      token = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+      localStorage.setItem(KEY, token);
+    }
+    fetch(SUPABASE_URL + '/functions/v1/track', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', apikey: SUPABASE_ANON, Authorization: 'Bearer ' + SUPABASE_ANON },
+      body: JSON.stringify({ token, path: location.pathname, referrer: document.referrer || null }),
+      keepalive: true,   // still sent if the page is unloading
+    }).catch(()=>{});
+  }catch(e){ /* metrics are best-effort */ }
+})();
+//online-end
