@@ -76,7 +76,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { buyer, ship, items } = payload ?? {};
 
   if (!buyer?.name || !buyer?.email)                  return json({ error: 'Missing your name or email' }, 400);
-  if (!ship?.line1 || !ship?.city || !ship?.postcode) return json({ error: 'Missing shipping address' }, 400);
+  // Delivery method decides shipping cost; self-pickup needs no address.
+  const method = ship?.method === 'pickup' ? 'pickup' : 'deliver';
+  if (method === 'deliver' && (!ship?.line1 || !ship?.city || !ship?.postcode))
+    return json({ error: 'Missing shipping address' }, 400);
   if (!Array.isArray(items) || !items.length)         return json({ error: 'Your cart is empty' }, 400);
   if (items.length > 50)                              return json({ error: 'Too many items' }, 400);
 
@@ -85,6 +88,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // Re-price every line from the catalogue.
   const lines: unknown[] = [];
   let subtotal = 0;
+  let giftQty = 0;   // number of single gift tags, for bulk (set-of-10) pricing
   for (const it of items) {
     const ref = it?.ref;
     const qty = Math.max(1, Math.min(99, parseInt(it?.qty ?? 1, 10) || 1));
@@ -93,7 +97,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (ref?.t === 'v') {
       const { data } = await supabase.from('product_variants')
-        .select('price, status, name, products(title)')
+        .select('price, status, name, products(title, category_slug)')
         .eq('product_id', ref.p).eq('key', ref.k).maybeSingle();
       if (!data)                  return json({ error: 'Unknown item' }, 400);
       const pTitle = (data as any).products?.title ?? ref.p;
@@ -101,6 +105,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (data.price == null)     return json({ error: `${pTitle} is not for sale online` }, 409);
       price = Number(data.price);
       title = `${pTitle} — ${data.name}`;
+      if ((data as any).products?.category_slug === 'gifttags' && ref.k === 'single') giftQty += qty;
     } else if (ref?.t === 't') {
       const { data } = await supabase.from('category_tiers')
         .select('price, name').eq('category_slug', ref.c).eq('key', ref.k).maybeSingle();
@@ -117,7 +122,27 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   subtotal = Math.round(subtotal * 100) / 100;
-  const shipping = SHIPPING_FLAT;
+
+  // Bulk gift-tag pricing: every complete 10 single gift tags is charged at the
+  // 'mix10' set price instead of 10 × the single price. Prices come from the
+  // catalogue (category_tiers), never the browser.
+  if (giftQty >= 10) {
+    const { data: tiers } = await supabase.from('category_tiers')
+      .select('key, price').eq('category_slug', 'gifttags').in('key', ['single', 'mix10']);
+    const per10  = Number(tiers?.find((t: any) => t.key === 'mix10')?.price);
+    const single = Number(tiers?.find((t: any) => t.key === 'single')?.price);
+    if (per10 > 0 && single > 0) {
+      const sets = Math.floor(giftQty / 10);
+      const discount = Math.round(Math.max(0, sets * (10 * single - per10)) * 100) / 100;
+      if (discount > 0) {
+        subtotal = Math.round((subtotal - discount) * 100) / 100;
+        lines.push({ ref: { t: 'discount' }, title: `Gift-tag bulk discount (${sets}×10)`,
+                     unit_price: -discount, qty: 1, line_total: -discount });
+      }
+    }
+  }
+
+  const shipping = method === 'pickup' ? 0 : SHIPPING_FLAT;
   const amount = Math.round((subtotal + shipping) * 100) / 100;
   if (amount < 5) return json({ error: 'Order total too low' }, 400);
 

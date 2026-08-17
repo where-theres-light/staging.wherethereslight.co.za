@@ -71,7 +71,7 @@ const DEMO = {
     townscapes: {
       title: 'Townscapes',
       eyebrow: 'The flagship range',
-      intro: 'Our flagship range — collections of towns drawn in pen on high-quality Fabriano paper. Every gable, fountain and garden held inside a dome of light. We are always on the lookout for more beautiful places to capture.'
+      intro: 'Our flagship range — collections of towns drawn in pen on high-quality Fabriano paper. We are always on the lookout for more beautiful places to capture.'
     },
     amelias: {
       title: "Amelia's House",
@@ -85,8 +85,8 @@ const DEMO = {
       intro: 'We are very proud to be collaborating with Koue Koffie Boeke on our range of gift tags. Our range includes cards perfect for all ages and can be purchased individually or in sets.',
       tiers: [
         { key: 'single', name: 'Singles',           sub: 'Individual gift tag',            price: 15 },
-        { key: 'mono5',  name: 'Mono set of 5',      sub: 'Signature monochrome',           price: 60 },
-        { key: 'mix10',  name: 'Mixed set of 10',    sub: 'Colour · water-colour range',    price: 100 }
+        { key: 'mono5',  name: 'Mono set of 5',      sub: 'Signature monochrome',           price: 50 },
+        { key: 'mix10',  name: 'Mixed set of 10',    sub: 'Colour · water-colour range',    price: 95 }
       ]
     }
   },

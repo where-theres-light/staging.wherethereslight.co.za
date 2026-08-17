@@ -130,7 +130,7 @@ function renderCollection(cat, mountId){
     const pricing = `<div class="from">from ${ZAR(p.fromPrint)}</div>` + (p.original.status==='sold'
       ? '<span class="sold">Original sold</span>'
       : `<div class="amt">${ZAR(p.original.price)}</div>`);
-    return `<figure class="piece${feature}"><a href="product.html?piece=${p.id}"><div class="mat"><div class="imgwrap"><img src="${p.img}" alt="${p.title} townscape" loading="lazy"></div></div><figcaption class="cap"><div><div class="ttl">${p.title}</div><div class="place">${p.place} · ${p.year}</div></div><div class="pricing">${pricing}</div></figcaption></a></figure>`;
+    return `<figure class="piece${feature}"><a href="product.html?piece=${p.id}"><div class="mat"><div class="imgwrap"><img src="${p.img}" alt="${p.title} townscape" loading="lazy"></div></div><figcaption class="cap"><div><div class="ttl">${p.title}</div><div class="place">${p.place}</div></div><div class="pricing">${pricing}</div></figcaption></a></figure>`;
   }).join('');
 }
 
@@ -139,10 +139,30 @@ const Cart = {
   key:'wtl_cart',
   read(){ try{return JSON.parse(localStorage.getItem(this.key))||[]}catch(e){return[]} },
   write(items){ localStorage.setItem(this.key, JSON.stringify(items)); this.render(); },
-  add(item){ const items=this.read(); items.push(item); this.write(items); toast('Added to cart'); this.open(); },
+  add(item){
+    const items=this.read(); const q=item.qty||1;
+    const match=items.find(x=>JSON.stringify(x.ref)===JSON.stringify(item.ref));
+    if(match) match.qty=(match.qty||1)+q; else items.push({...item, qty:q});
+    this.write(items); toast('Added to cart'); this.open();
+  },
   remove(i){ const items=this.read(); items.splice(i,1); this.write(items); },
-  count(){ return this.read().length; },
-  total(){ return this.read().reduce((s,x)=>s+x.price,0); },
+  /* Change a line's quantity by ±1; drop the line at zero. */
+  step(i,d){ const items=this.read(); if(!items[i]) return; const q=(items[i].qty||1)+d;
+    if(q<=0) items.splice(i,1); else items[i].qty=Math.min(99,q); this.write(items); },
+  count(){ return this.read().reduce((s,x)=>s+(x.qty||1),0); },
+  /* Bulk gift-tag pricing: every complete 10 single gift tags is charged at the
+     gifttags 'mix10' set price instead of 10 × the single price. Returns the
+     amount to knock off the line-item subtotal (0 when fewer than 10). */
+  giftDiscount(){
+    const giftIds = new Set(productsIn('gifttags').map(p=>p.id));
+    const n = this.read().filter(x=>x.ref && x.ref.t==='v' && x.ref.k==='single' && giftIds.has(x.ref.p)).reduce((s,x)=>s+(x.qty||1),0);
+    const tiers = (CATEGORIES.gifttags && CATEGORIES.gifttags.tiers) || [];
+    const per10  = (tiers.find(t=>t.key==='mix10')  || {}).price;
+    const single = (tiers.find(t=>t.key==='single') || {}).price;
+    if(n < 10 || per10==null || single==null) return 0;
+    return Math.max(0, Math.floor(n/10) * (10*single - per10));
+  },
+  total(){ return this.read().reduce((s,x)=>s+x.price*(x.qty||1),0) - this.giftDiscount(); },
   open(){ document.getElementById('cartScrim')?.classList.add('open'); document.getElementById('cartDrawer')?.classList.add('open'); },
   close(){ document.getElementById('cartScrim')?.classList.remove('open'); document.getElementById('cartDrawer')?.classList.remove('open'); },
   render(){
@@ -151,11 +171,21 @@ const Cart = {
     const items=this.read();
     if(!items.length){ body.innerHTML='<div class="cart-empty">Your cart is quiet.<br>Find a town worth keeping.</div>'; }
     else{
-      body.innerHTML=items.map((it,i)=>`<div class="cart-line">
+      const disc=this.giftDiscount();
+      body.innerHTML=items.map((it,i)=>{
+        const q=it.qty||1, single=it.ref&&it.ref.k==='orig';   // originals are one-of-a-kind
+        const ctl = single
+          ? `<button class="rm" onclick="Cart.remove(${i})">Remove</button>`
+          : `<div class="qty"><button class="qbtn" onclick="Cart.step(${i},-1)" aria-label="Decrease">−</button><span class="qn">${q}</span><button class="qbtn" onclick="Cart.step(${i},1)" aria-label="Increase">+</button><button class="rm" onclick="Cart.remove(${i})">Remove</button></div>`;
+        return `<div class="cart-line">
         <img src="${it.img}" alt="">
         <div class="meta"><div class="t">${it.title}</div><div class="s">${it.edition}</div>
-        <button class="rm" onclick="Cart.remove(${i})">Remove</button></div>
-        <div class="t" style="font-size:1rem">${ZAR(it.price)}</div></div>`).join('');
+        ${ctl}</div>
+        <div class="t" style="font-size:1rem">${ZAR(it.price*q)}</div></div>`;
+      }).join('')
+        + (disc>0 ? `<div class="cart-line cart-discount">
+        <div class="meta"><div class="t">Gift-tag bulk discount</div><div class="s">Every 10 tags priced as a set of 10</div></div>
+        <div class="t" style="font-size:1rem">−${ZAR(disc)}</div></div>` : '');
     }
     const tot=document.getElementById('cartTotal'); if(tot) tot.textContent=ZAR(this.total());
     const co=document.getElementById('checkoutBtn'); if(co) co.style.display=items.length?'':'none';
@@ -169,43 +199,55 @@ function toast(msg){
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
 }
 /* ---------- Checkout ---------- */
-/* Base (offline/dev) behaviour: real payments need the back-end, so the preview
-   build just says so. The //online block below replaces it with the PayFast
-   flow in production. */
+/* The shipping form renders in every build; only the final payment step
+   differs. Real payments need the back-end, so offline (dev) submitting the
+   form just says checkout isn't available; the //online block below swaps in
+   the PayFast flow for production. */
 const Checkout = {
-  start(){ toast('Checkout is not available in this preview'); }
+  start(){
+    const items = Cart.read();
+    if(!items.length){ toast('Your cart is empty'); return; }
+    Cart.open();
+    const body = document.getElementById('cartBody');
+    if(!body) return;
+    body.innerHTML = `
+      <form id="coForm" class="checkout-form">
+        <h4>Your details</h4>
+        <label>Full name<input name="name" required autocomplete="name"></label>
+        <label>Email<input name="email" type="email" required autocomplete="email"></label>
+        <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
+        <label>Delivery<select name="shipping" class="co-ship">
+          <option value="deliver">Shipping — ${ZAR(150)}</option>
+          <option value="pickup">Self pickup — no shipping cost</option>
+        </select></label>
+        <div class="co-ship-fields">
+          <label>Address<input name="line1" required autocomplete="address-line1"></label>
+          <label>Suburb / complex<input name="line2" autocomplete="address-line2"></label>
+          <div class="co-row">
+            <label>City<input name="city" required autocomplete="address-level2"></label>
+            <label>Province<input name="province" autocomplete="address-level1"></label>
+          </div>
+          <label>Postal code<input name="postcode" required autocomplete="postal-code"></label>
+        </div>
+        <p class="co-note">Secure payment via PayFast.</p>
+        <button type="submit" class="btn btn-primary co-pay">Pay ${ZAR(Cart.total()+150)}</button>
+        <button type="button" class="btn btn-ghost co-back">Back to cart</button>
+      </form>`;
+    document.getElementById('coForm').addEventListener('submit', Checkout.submit);
+    body.querySelector('.co-back').addEventListener('click', ()=>Cart.render());
+    const shipSel = body.querySelector('.co-ship'), payBtn = body.querySelector('.co-pay');
+    const shipFields = body.querySelector('.co-ship-fields');
+    shipSel.addEventListener('change', ()=>{
+      const pickup = shipSel.value === 'pickup';
+      payBtn.textContent = `Pay ${ZAR(Cart.total() + (pickup ? 0 : 150))}`;
+      shipFields.hidden = pickup;   // hide the delivery address for self-pickup
+      ['line1','city','postcode'].forEach(n=>{ const el=shipFields.querySelector(`[name="${n}"]`); if(el) el.required = !pickup; });
+    });
+  },
+  submit(e){ e.preventDefault(); toast('Checkout is not available in this preview'); }
 };
 
 //online-start
-Checkout.start = function(){
-  const items = Cart.read();
-  if(!items.length){ toast('Your cart is empty'); return; }
-  Cart.open();
-  const body = document.getElementById('cartBody');
-  if(!body) return;
-  body.innerHTML = `
-    <form id="coForm" class="checkout-form">
-      <h4>Shipping details</h4>
-      <label>Full name<input name="name" required autocomplete="name"></label>
-      <label>Email<input name="email" type="email" required autocomplete="email"></label>
-      <label>Address<input name="line1" required autocomplete="address-line1"></label>
-      <label>Suburb / complex<input name="line2" autocomplete="address-line2"></label>
-      <div class="co-row">
-        <label>City<input name="city" required autocomplete="address-level2"></label>
-        <label>Province<input name="province" autocomplete="address-level1"></label>
-      </div>
-      <div class="co-row">
-        <label>Postal code<input name="postcode" required autocomplete="postal-code"></label>
-        <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
-      </div>
-      <p class="co-note">Shipping ${ZAR(150)} · secure payment via PayFast.</p>
-      <button type="submit" class="btn btn-primary co-pay">Pay ${ZAR(Cart.total()+150)}</button>
-      <button type="button" class="btn btn-ghost co-back">Back to cart</button>
-    </form>`;
-  document.getElementById('coForm').addEventListener('submit', Checkout.submit);
-  body.querySelector('.co-back').addEventListener('click', ()=>Cart.render());
-};
-
 Checkout.submit = async function(e){
   e.preventDefault();
   const btn = e.target.querySelector('.co-pay');
@@ -214,8 +256,8 @@ Checkout.submit = async function(e){
   const g = k => (fd.get(k) || '').toString().trim();
   const buyer = { name: g('name'), email: g('email') };
   const ship  = { line1:g('line1'), line2:g('line2'), city:g('city'), province:g('province'),
-                  postcode:g('postcode'), country:'South Africa', phone:g('phone') };
-  const items = Cart.read().map(l => ({ ref: l.ref, qty: 1 }));
+                  postcode:g('postcode'), country:'South Africa', phone:g('phone'), method:g('shipping') };
+  const items = Cart.read().map(l => ({ ref: l.ref, qty: l.qty || 1 }));
   try {
     const res = await fetch(SUPABASE_URL + '/functions/v1/create-order', {
       method: 'POST',
