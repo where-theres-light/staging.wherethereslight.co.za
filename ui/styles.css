@@ -129,6 +129,7 @@ p{margin:0 0 1em;}
 .cart-line .meta{flex:1;}
 .cart-line .t{font-family:var(--serif);font-size:1.1rem;color:var(--green);}
 .cart-line .s{font-size:.78rem;color:var(--ink-soft);}
+.cart-line.cart-discount .t{color:var(--gold);}
 .cart-line .rm{background:none;border:none;color:var(--ink-soft);font-size:.74rem;text-decoration:underline;padding:4px 0;}
 .cart-empty{text-align:center;color:var(--ink-soft);padding:60px 0;font-family:var(--serif);font-size:1.3rem;}
 .cart-total{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px;}
