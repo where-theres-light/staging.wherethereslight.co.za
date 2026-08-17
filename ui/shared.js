@@ -195,12 +195,20 @@ const Checkout = {
           <label>Postal code<input name="postcode" required autocomplete="postal-code"></label>
           <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
         </div>
-        <p class="co-note">Shipping ${ZAR(150)} · secure payment via PayFast.</p>
+        <label>Delivery<select name="shipping" class="co-ship">
+          <option value="deliver">Shipping — ${ZAR(150)}</option>
+          <option value="pickup">Self pickup — no shipping cost</option>
+        </select></label>
+        <p class="co-note">Secure payment via PayFast.</p>
         <button type="submit" class="btn btn-primary co-pay">Pay ${ZAR(Cart.total()+150)}</button>
         <button type="button" class="btn btn-ghost co-back">Back to cart</button>
       </form>`;
     document.getElementById('coForm').addEventListener('submit', Checkout.submit);
     body.querySelector('.co-back').addEventListener('click', ()=>Cart.render());
+    const shipSel = body.querySelector('.co-ship'), payBtn = body.querySelector('.co-pay');
+    shipSel.addEventListener('change', ()=>{
+      payBtn.textContent = `Pay ${ZAR(Cart.total() + (shipSel.value==='pickup' ? 0 : 150))}`;
+    });
   },
   submit(e){ e.preventDefault(); toast('Checkout is not available in this preview'); }
 };
@@ -214,7 +222,7 @@ Checkout.submit = async function(e){
   const g = k => (fd.get(k) || '').toString().trim();
   const buyer = { name: g('name'), email: g('email') };
   const ship  = { line1:g('line1'), line2:g('line2'), city:g('city'), province:g('province'),
-                  postcode:g('postcode'), country:'South Africa', phone:g('phone') };
+                  postcode:g('postcode'), country:'South Africa', phone:g('phone'), method:g('shipping') };
   const items = Cart.read().map(l => ({ ref: l.ref, qty: 1 }));
   try {
     const res = await fetch(SUPABASE_URL + '/functions/v1/create-order', {
