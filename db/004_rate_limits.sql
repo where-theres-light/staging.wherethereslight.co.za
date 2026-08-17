@@ -7,7 +7,7 @@
 -- RLS is enabled with NO policies, so anon/authenticated cannot read or write
 -- it directly.
 --
--- Each row is one (key, window) bucket — e.g. key `signup:<ip>`. Buckets are
+-- Each row is one (key, window) bucket — e.g. key `subscribe:<ip>`. Buckets are
 -- dead weight once their window passes; a scheduled job can purge them (see the
 -- cleanup query at the foot of this file).
 

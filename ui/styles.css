@@ -161,22 +161,22 @@ p{margin:0 0 1em;}
 .confirm h1{font-family:var(--serif);color:var(--green);font-size:clamp(2rem,5vw,3rem);font-weight:500;margin:0 0 14px;}
 .confirm p{color:var(--ink-soft);font-size:1.05rem;line-height:1.6;margin:0 auto 28px;max-width:42ch;}
 
-/* mailing-list signup page */
-.signup{max-width:460px;margin:0 auto;padding:0 var(--gutter) clamp(80px,12vw,140px);}
-.signup-form{padding:0;}
-.signup-form .signup-btn{width:100%;margin-top:8px;}
-.signup-done{text-align:center;padding:8px 0;}
-.signup-done h4{color:var(--green);font-family:var(--serif);font-size:1.6rem;font-weight:500;margin:0 0 8px;}
-.signup-done p{color:var(--ink-soft);font-size:1rem;line-height:1.6;margin:0;}
+/* mailing-list subscribe page */
+.subscribe{max-width:460px;margin:0 auto;padding:0 var(--gutter) clamp(80px,12vw,140px);}
+.subscribe-form{padding:0;}
+.subscribe-form .subscribe-btn{width:100%;margin-top:8px;}
+.subscribe-done{text-align:center;padding:8px 0;}
+.subscribe-done h4{color:var(--green);font-family:var(--serif);font-size:1.6rem;font-weight:500;margin:0 0 8px;}
+.subscribe-done p{color:var(--ink-soft);font-size:1rem;line-height:1.6;margin:0;}
 
 /* inline "Notify me" form on the Upcoming page */
 .notify-form{display:flex;gap:10px;flex-wrap:wrap;align-items:center;max-width:440px;}
 .notify-form[hidden]{display:none;}
 .notify-form input{flex:1;min-width:200px;font-family:var(--sans);font-size:.95rem;color:var(--ink);background:var(--paper-2);border:1px solid var(--mist);border-radius:2px;padding:13px 14px;}
 .notify-form input:focus{outline:none;border-color:var(--sage);}
-.notify-form .signup-btn{flex:none;}
-.notify .signup-done{text-align:left;padding:0;}
-.notify .signup-done h4{font-size:1.3rem;}
+.notify-form .subscribe-btn{flex:none;}
+.notify .subscribe-done{text-align:left;padding:0;}
+.notify .subscribe-done h4{font-size:1.3rem;}
 
 /* toast */
 .toast{position:fixed;bottom:28px;left:50%;transform:transl(-50%,20px);translate:-50% 20px;background:var(--green);color:var(--paper);padding:14px 24px;border-radius:3px;font-size:.88rem;box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:0;visibility:hidden;transition:.3s;z-index:100;}

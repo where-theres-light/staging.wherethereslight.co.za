@@ -247,35 +247,35 @@ const Checkout = {
   submit(e){ e.preventDefault(); toast('Checkout is not available in this preview'); }
 };
 
-/* ---------- Mailing-list signup ---------- */
-/* "Signup for future communication" (footer → signup.html). The form renders in
-   every build; only the write differs. Offline (dev) there is no back-end, so
+/* ---------- Mailing-list subscribe ---------- */
+/* "Signup for future communication" (footer → subscribe.html). The form renders
+   in every build; only the write differs. Offline (dev) there is no back-end, so
    the preview just acknowledges without sending anything; the //online block
    below swaps in the real Supabase insert for production. */
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-/* Any signup form drives this: the footer page (signup.html) and the "Notify me"
-   button on Upcoming. A form may carry a hidden `subscribe_type` field (1 =
-   future communication, 2 = Grasse notification) and a `data-done` override for
-   its thank-you line; both default sensibly when absent. */
-const Signup = {
+/* Any subscribe form drives this: the footer page (subscribe.html) and the
+   "Notify me" button on Upcoming. A form may carry a hidden `subscribe_type`
+   field (1 = future communication, 2 = Grasse notification) and a `data-done`
+   override for its thank-you line; both default sensibly when absent. */
+const Subscribe = {
   /* Replace the form with a thank-you message (idempotent, both builds). */
   done(form, msg){
     const m = msg || form.dataset.done || "Thanks for signing up — we'll be in touch.";
-    form.innerHTML = `<div class="signup-done"><h4>You're on the list</h4><p>${m}</p></div>`;
+    form.innerHTML = `<div class="subscribe-done"><h4>You're on the list</h4><p>${m}</p></div>`;
   },
   submit(e){
     e.preventDefault();
     const email = (new FormData(e.target).get('email') || '').toString().trim();
     if(!EMAIL_RE.test(email)){ toast('Please enter a valid email'); return; }
-    Signup.done(e.target);
+    Subscribe.done(e.target);
   }
 };
 
 //online-start
-Signup.submit = async function(e){
+Subscribe.submit = async function(e){
   e.preventDefault();
   const form = e.target;
-  const btn = form.querySelector('.signup-btn');
+  const btn = form.querySelector('.subscribe-btn');
   const label = btn ? btn.textContent : '';   // each form keeps its own button text
   const fd = new FormData(form);
   const email = (fd.get('email') || '').toString().trim().toLowerCase();
@@ -283,9 +283,9 @@ Signup.submit = async function(e){
   const subscribeType = Number(fd.get('subscribe_type')) === 2 ? 2 : 1;   // 1 = future comms, 2 = Grasse
   if(btn){ btn.disabled = true; btn.textContent = 'Signing up…'; }
   try {
-    // Routed through the signup edge function, which rate-limits by IP and
+    // Routed through the subscribe edge function, which rate-limits by IP and
     // writes as service role — the table is not writable with the public key.
-    const res = await fetch(SUPABASE_URL + '/functions/v1/signup', {
+    const res = await fetch(SUPABASE_URL + '/functions/v1/subscribe', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -296,7 +296,7 @@ Signup.submit = async function(e){
     });
     const out = await res.json().catch(() => ({}));
     if(res.ok){
-      Signup.done(form, out.already ? "You're already on the list — thank you." : '');
+      Subscribe.done(form, out.already ? "You're already on the list — thank you." : '');
       return;
     }
     toast(res.status === 429

@@ -76,14 +76,14 @@ the edge functions (service role). Buyers check out as guests (no login).
 The browser calls these with the publishable key; `create-order` recomputes the
 price server-side, so a tampered cart can never change what is charged.
 
-## Mailing-list signups
+## Mailing-list subscriptions
 
-Two places collect emails into the `signups` table: the footer's **"Signup for
-future communication"** link (`signup.html`) and the **"Notify me when
+Two places collect emails into the `subscriptions` table: the footer's **"Signup
+for future communication"** link (`subscribe.html`) and the **"Notify me when
 available"** button on the Upcoming page. Like orders, the table is **not
-writable with the publishable key** (RLS on, no public policies) — every signup
-goes through the **`signup` edge function**, which writes as service role.
-Routing it through a function is what makes the signup **rate-limited**: the
+writable with the publishable key** (RLS on, no public policies) — every
+subscribe goes through the **`subscribe` edge function**, which writes as service
+role. Routing it through a function is what makes it **rate-limited**: the
 browser has no write path that skips the limiter, and the address list can never
 be read back from the client (only via the dashboard / service role).
 
@@ -96,27 +96,28 @@ Uniqueness is per `(email, subscribe_type)`, so one person can be on the general
 list and request the Grasse notification independently; a repeat of the same
 type is reported as "already on the list".
 
-- **`../db/003_signups.sql`** — the `signups` table (RLS on, no policies; a
-  `CHECK` validates the email; `subscribe_type` is a `SMALLINT` checked to
-  `IN (1, 2)`; a unique index on `(lower(email), subscribe_type)` de-dupes).
-- **`functions/signup/`** — validates the email, rate-limits by client IP
-  **per subscribe type** (default **5 signups per IP per hour**, counted
-  separately for each type so one doesn't lock out the other), and inserts the
-  row. A duplicate returns `{ ok: true, already: true }`, which the page shows as
-  "already on the list"; over the limit returns `429`.
+- **`../db/003_subscriptions.sql`** — the `subscriptions` table (RLS on, no
+  policies; a `CHECK` validates the email; `subscribe_type` is a `SMALLINT`
+  checked to `IN (1, 2)`; a unique index on `(lower(email), subscribe_type)`
+  de-dupes).
+- **`functions/subscribe/`** — validates the email, rate-limits by client IP
+  **per subscribe type** (default **5 per IP per hour**, counted separately for
+  each type so one doesn't lock out the other), and inserts the row. A duplicate
+  returns `{ ok: true, already: true }`, which the page shows as "already on the
+  list"; over the limit returns `429`.
 - **`functions/_shared/rate-limit.ts`** + **`../db/004_rate_limits.sql`** — the
   rate limiter (see below).
 - **`ui/shared.js`** (inside the `//online` block) POSTs to
-  `functions/v1/signup` with the publishable key.
+  `functions/v1/subscribe` with the publishable key.
 
 ### Setup
 
-1. Run **`db/003_signups.sql`** and **`db/004_rate_limits.sql`** in the SQL
+1. Run **`db/003_subscriptions.sql`** and **`db/004_rate_limits.sql`** in the SQL
    editor (or `supabase db push`). Both are idempotent.
 2. Deploy the function with JWT verification off:
 
    ```bash
-   supabase functions deploy signup --no-verify-jwt
+   supabase functions deploy subscribe --no-verify-jwt
    ```
 
    It needs no extra secrets (`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` are
@@ -165,7 +166,7 @@ SHA-256 hash, so a session can't be tied back to an address.
   function secrets. It is best-effort — any failure or a private/unknown IP just
   stores the session without a location.
 - **`functions/_shared/hash.ts`** — the salted-SHA-256 IP hash, shared with
-  `signup` (which also hashes the IP in its rate-limit key). Set **`IP_HASH_SALT`**
+  `subscribe` (which also hashes the IP in its rate-limit key). Set **`IP_HASH_SALT`**
   as a function secret so hashes can't be brute-forced back across the small IPv4
   space.
 - **`ui/shared.js`** (inside the `//online` block) fires a fire-and-forget

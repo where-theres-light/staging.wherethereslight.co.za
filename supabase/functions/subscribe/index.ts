@@ -2,15 +2,16 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { rateLimit } from '../_shared/rate-limit.ts';
 import { hashIp } from '../_shared/hash.ts';
 
-// signup — records a mailing-list email ("Signup for future communication").
+// subscribe — records a mailing-list email ("Signup for future communication").
 //
-// The signups table is not writable with the publishable key (RLS on, no public
-// policies), so every signup comes through here and is written as service role.
-// Routing it through a function is what makes rate limiting possible: the
-// browser cannot bypass the limiter by POSTing straight to PostgREST.
+// The subscriptions table is not writable with the publishable key (RLS on, no
+// public policies), so every subscribe comes through here and is written as
+// service role. Routing it through a function is what makes rate limiting
+// possible: the browser cannot bypass the limiter by POSTing straight to
+// PostgREST.
 //
-// Rate limit: at most RL_LIMIT signups per client IP per RL_WINDOW, counted in
-// the database so the limit holds across function instances.
+// Rate limit: at most RL_LIMIT subscribes per client IP per RL_WINDOW, counted
+// in the database so the limit holds across function instances.
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -23,7 +24,7 @@ const ORIGINS = new Set([
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-const RL_LIMIT = 5;       // signups allowed…
+const RL_LIMIT = 5;       // subscribes allowed…
 const RL_WINDOW = 3600;   // …per client IP per hour
 
 // Best-effort client IP: the first hop in x-forwarded-for, else x-real-ip.
@@ -66,18 +67,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // Rate-limit by client IP (hashed — the raw IP is never persisted, not even in
   // the limiter key), per subscribe type, so hitting the limit on one (e.g. the
   // Grasse notification) doesn't lock the other out. Fail open if the limiter
-  // itself errors, so a transient database problem never blocks a genuine signup.
-  const rl = await rateLimit(supabase, `signup:${subscribeType}:${await hashIp(clientIp(req))}`, {
+  // itself errors, so a transient database problem never blocks a genuine subscribe.
+  const rl = await rateLimit(supabase, `subscribe:${subscribeType}:${await hashIp(clientIp(req))}`, {
     limit: RL_LIMIT, windowSeconds: RL_WINDOW,
   });
   if (rl && !rl.allowed)
     return json({ error: 'Too many signups — please try again later' }, 429,
       { 'Retry-After': String(rl.retryAfter) });
 
-  const { error } = await supabase.from('signups').insert({ email, subscribe_type: subscribeType });
+  const { error } = await supabase.from('subscriptions').insert({ email, subscribe_type: subscribeType });
   if (error) {
     if (error.code === '23505') return json({ ok: true, already: true });  // duplicate email
-    console.error('[signup]', error.message);
+    console.error('[subscribe]', error.message);
     return json({ error: 'Could not sign you up' }, 500);
   }
   return json({ ok: true });

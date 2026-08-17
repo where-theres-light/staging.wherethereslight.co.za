@@ -61,7 +61,7 @@
           <form class="notify-form" hidden data-done="We'll email you the moment Grasse van die Veld is ready.">
             <input name="email" type="email" required autocomplete="email" placeholder="you@example.com" aria-label="Email">
             <input type="hidden" name="subscribe_type" value="2">
-            <button type="submit" class="btn btn-primary signup-btn">Notify me</button>
+            <button type="submit" class="btn btn-primary subscribe-btn">Notify me</button>
           </form>
         </div>
       </div>
@@ -91,7 +91,7 @@
             <span>@where_theres_light</span>
           </div>
         </a>
-        <a href="signup.html">Signup for future communication</a>
+        <a href="subscribe.html">Signup for future communication</a>
       </div>
     </div>
     <div class="foot-bottom">
@@ -114,11 +114,11 @@
 <script src="shared.js"></script>
 <script>
   // "Notify me" reveals the email field and hands submission to the shared
-  // signup pipeline (tagged source=upcoming, topic=this piece).
+  // subscribe pipeline (tagged subscribe_type=2, the Grasse notification).
   document.querySelectorAll('.notify').forEach(box=>{
     const open = box.querySelector('.notify-open'), form = box.querySelector('.notify-form');
     open.addEventListener('click', ()=>{ open.hidden = true; form.hidden = false; form.querySelector('input[name="email"]').focus(); });
-    form.addEventListener('submit', Signup.submit);
+    form.addEventListener('submit', Subscribe.submit);
   });
 </script>
 </body>

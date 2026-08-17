@@ -35,15 +35,15 @@
     <h1>Sign up for future communication</h1>
     <p class="intro">New townscapes, print releases and the occasional note from the studio — sent now and then, never often. Leave your email and we'll keep you posted.</p>
   </section>
-  <section class="signup wrap">
-    <form id="signupForm" class="checkout-form signup-form" novalidate>
+  <section class="subscribe wrap">
+    <form id="subscribeForm" class="checkout-form subscribe-form" novalidate>
       <label>Email
         <input name="email" type="email" required autocomplete="email" placeholder="you@example.com">
       </label>
       <input type="hidden" name="subscribe_type" value="1">
 
       <p class="co-note">We'll only email you about Where There's Light. No spam, unsubscribe any time.</p>
-      <button type="submit" class="btn btn-primary signup-btn">Sign up</button>
+      <button type="submit" class="btn btn-primary subscribe-btn">Sign up</button>
     </form>
   </section>
 </main>
@@ -70,7 +70,7 @@
             <span>@where_theres_light</span>
           </div>
         </a>
-        <a href="signup.html">Signup for future communication</a>
+        <a href="subscribe.html">Signup for future communication</a>
       </div>
     </div>
     <div class="foot-bottom">
@@ -91,6 +91,6 @@
 </aside>
 
 <script src="shared.js"></script>
-<script>document.getElementById('signupForm').addEventListener('submit', Signup.submit);</script>
+<script>document.getElementById('subscribeForm').addEventListener('submit', Subscribe.submit);</script>
 </body>
 </html>

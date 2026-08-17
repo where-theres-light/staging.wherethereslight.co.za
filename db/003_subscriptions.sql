@@ -1,6 +1,7 @@
--- Email signups: "Signup for future communication" (footer → signup.html)
+-- Email subscriptions: the mailing list behind "Signup for future communication"
+-- (footer → subscribe.html) and the Upcoming "Notify me" button.
 --
--- Written only by the `signup` edge function, which connects as service role.
+-- Written only by the `subscribe` edge function, which connects as service role.
 -- Like orders, RLS is enabled with NO policies, so anon/authenticated cannot
 -- read or write it directly. Going through the function (rather than a direct
 -- PostgREST insert with the publishable key) is what lets it be rate-limited:
@@ -8,7 +9,7 @@
 -- by the project owner via the dashboard / service role, so addresses can never
 -- be harvested from the client.
 
-CREATE TABLE IF NOT EXISTS signups (
+CREATE TABLE IF NOT EXISTS subscriptions (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email          TEXT NOT NULL
                    CHECK (
@@ -27,11 +28,11 @@ CREATE TABLE IF NOT EXISTS signups (
 -- on the general list and request the Grasse notification independently. A
 -- repeat of the same type hits this and the edge function reports it as
 -- "already on the list".
-CREATE UNIQUE INDEX IF NOT EXISTS signups_email_type_key ON signups (lower(email), subscribe_type);
+CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_email_type_key ON subscriptions (lower(email), subscribe_type);
 
-ALTER TABLE signups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
 
--- Deny all direct access; the signup edge function connects as service role.
+-- Deny all direct access; the subscribe edge function connects as service role.
 -- (Undo the earlier direct-insert grant/policy if a prior version was applied.)
-DROP POLICY IF EXISTS signups_insert ON signups;
-REVOKE INSERT ON signups FROM anon, authenticated;
+DROP POLICY IF EXISTS subscriptions_insert ON subscriptions;
+REVOKE INSERT ON subscriptions FROM anon, authenticated;
