@@ -147,18 +147,27 @@ Anonymous page-visit tracking, written only by the **`track` edge function**
 (service role) — both tables are RLS on with no policies, so the browser can
 neither read nor write them, and the owner reads them via the dashboard.
 
+The raw IP is **never stored**. The function uses it only in-memory — to
+geolocate the session and as a rate-limit key — and persists only a salted
+SHA-256 hash, so a session can't be tied back to an address.
+
 - **`../db/005_metrics.sql`** — two tables:
-  - **`sessions`** — one anonymous browser, unique on `(token, ip)`: a random
-    token kept in the visitor's `localStorage` paired with the server-seen IP.
+  - **`sessions`** — one anonymous browser, unique on `(token, ip_hash)`: a
+    random token kept in the visitor's `localStorage` paired with the hashed IP.
     Geolocated **once**, when first recorded.
   - **`page_visits`** — one row per page view, referencing a session.
-- **`functions/track/`** — pairs the token with the client IP, rate-limits by IP
-  (**100 visits per IP per 10 min**), geolocates the IP on the session's first
-  sight, and appends the visit. A returning session just bumps `last_seen`.
+- **`functions/track/`** — pairs the token with the client IP, rate-limits by
+  (hashed) IP (**100 visits per IP per 10 min**), geolocates the IP on the
+  session's first sight, and appends the visit storing only `ip_hash`. A
+  returning session just bumps `last_seen`.
 - **`functions/_shared/geo.ts`** — the IP → location lookup. Uses **ipapi.co**
   (free, no key) by default; override with the `GEO_API_URL` / `GEO_API_KEY`
   function secrets. It is best-effort — any failure or a private/unknown IP just
   stores the session without a location.
+- **`functions/_shared/hash.ts`** — the salted-SHA-256 IP hash, shared with
+  `signup` (which also hashes the IP in its rate-limit key). Set **`IP_HASH_SALT`**
+  as a function secret so hashes can't be brute-forced back across the small IPv4
+  space.
 - **`ui/shared.js`** (inside the `//online` block) fires a fire-and-forget
   beacon to `functions/v1/track` on every page load. Metrics never block or
   affect the page; the offline `dev` build strips the call entirely.
@@ -173,9 +182,9 @@ neither read nor write them, and the owner reads them via the dashboard.
    supabase functions deploy track --no-verify-jwt
    ```
 
-   No secrets are required (a default public geo service is used); set
-   `GEO_API_URL` / `GEO_API_KEY` only to point at a different provider.
+   Set **`IP_HASH_SALT`** to a long random secret (`supabase secrets set
+   IP_HASH_SALT=…`) so IP hashes have real pre-image resistance. `GEO_API_URL` /
+   `GEO_API_KEY` are optional — only to point at a different geo provider.
 
 Both staging and production share one project, so staging visits are recorded
-alongside production ones; the `sessions.ip` / geolocation let you tell them
-apart if needed.
+alongside production ones; the geolocation lets you tell them apart if needed.

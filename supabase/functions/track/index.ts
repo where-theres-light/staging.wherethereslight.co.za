@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { rateLimit } from '../_shared/rate-limit.ts';
 import { geolocate } from '../_shared/geo.ts';
+import { hashIp } from '../_shared/hash.ts';
 
 // track — records an anonymous page visit.
 //
@@ -56,34 +57,37 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const referrer = payload?.referrer ? cap(payload.referrer, 2048) : null;
   if (!token) return json({ error: 'Missing session token' }, 400);
 
+  // The raw IP is used only in-memory (rate-limit key, geolocation); only its
+  // salted hash is ever stored, so sessions can't be tied back to an address.
   const ip = clientIp(req);
+  const ipHash = await hashIp(ip);
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
 
   // Rate-limit visit entries by IP. Fail open on limiter error so a transient
   // database problem never drops metrics.
-  const rl = await rateLimit(supabase, `visit:${ip}`, { limit: RL_LIMIT, windowSeconds: RL_WINDOW });
+  const rl = await rateLimit(supabase, `visit:${ipHash}`, { limit: RL_LIMIT, windowSeconds: RL_WINDOW });
   if (rl && !rl.allowed)
     return json({ error: 'Rate limited' }, 429, { 'Retry-After': String(rl.retryAfter) });
 
-  // Find the session (token + IP) or create it, geolocating only on first sight.
+  // Find the session (token + IP hash) or create it, geolocating only on first sight.
   const nowIso = new Date().toISOString();
   let sessionId: string | undefined;
 
   const { data: found } = await supabase.from('sessions')
-    .select('id').eq('token', token).eq('ip', ip).maybeSingle();
+    .select('id').eq('token', token).eq('ip_hash', ipHash).maybeSingle();
 
   if (found) {
     sessionId = found.id;
     await supabase.from('sessions').update({ last_seen: nowIso }).eq('id', sessionId);
   } else {
-    const geo = await geolocate(ip);
+    const geo = await geolocate(ip);   // raw IP, not stored
     const { data: created, error } = await supabase.from('sessions')
-      .insert({ token, ip, user_agent: cap(req.headers.get('user-agent'), 512) || null, ...geo })
+      .insert({ token, ip_hash: ipHash, user_agent: cap(req.headers.get('user-agent'), 512) || null, ...geo })
       .select('id').single();
     if (error) {
       // A concurrent first visit may have created it — fetch that row.
       const { data: retry } = await supabase.from('sessions')
-        .select('id').eq('token', token).eq('ip', ip).maybeSingle();
+        .select('id').eq('token', token).eq('ip_hash', ipHash).maybeSingle();
       if (!retry) { console.error('[track]', error.message); return json({ error: 'Could not record session' }, 500); }
       sessionId = retry.id;
     } else {

@@ -5,16 +5,17 @@
 -- directly — the owner reads them via the dashboard / service role.
 --
 -- A "session" is one anonymous browser, identified by a random client token
--- (kept in localStorage) plus the server-seen IP: the same token from a new
--- network is a new session, and a shared IP with different tokens stays
--- distinct. The IP is resolved to a coarse location once, when the session is
--- first recorded (never on every visit), by an external IP-geolocation service
--- called from the edge function.
+-- (kept in localStorage) plus a hash of the server-seen IP: the same token from
+-- a new network is a new session, and a shared IP with different tokens stays
+-- distinct. The raw IP is never stored — the edge function hashes it (salted
+-- SHA-256) and uses the raw value only in-memory to resolve a coarse location
+-- once, when the session is first recorded (never on every visit), via an
+-- external IP-geolocation service.
 
 CREATE TABLE IF NOT EXISTS sessions (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   token        TEXT NOT NULL,          -- client-generated random session token
-  ip           TEXT NOT NULL,          -- server-seen client IP
+  ip_hash      TEXT NOT NULL,          -- salted SHA-256 of the client IP (raw IP never stored)
   user_agent   TEXT,
   -- Coarse geolocation from the IP lookup (any may be null if it fails):
   country      TEXT,
@@ -28,9 +29,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_seen    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Session uniqueness: one row per (token, ip). The edge function upserts against
--- this — a returning visitor updates last_seen instead of creating a new row.
-CREATE UNIQUE INDEX IF NOT EXISTS sessions_token_ip_key ON sessions (token, ip);
+-- Session uniqueness: one row per (token, ip_hash). The edge function upserts
+-- against this — a returning visitor updates last_seen instead of a new row.
+CREATE UNIQUE INDEX IF NOT EXISTS sessions_token_iphash_key ON sessions (token, ip_hash);
 
 CREATE TABLE IF NOT EXISTS page_visits (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
