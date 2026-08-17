@@ -139,22 +139,30 @@ const Cart = {
   key:'wtl_cart',
   read(){ try{return JSON.parse(localStorage.getItem(this.key))||[]}catch(e){return[]} },
   write(items){ localStorage.setItem(this.key, JSON.stringify(items)); this.render(); },
-  add(item){ const items=this.read(); items.push(item); this.write(items); toast('Added to cart'); this.open(); },
+  add(item){
+    const items=this.read(); const q=item.qty||1;
+    const match=items.find(x=>JSON.stringify(x.ref)===JSON.stringify(item.ref));
+    if(match) match.qty=(match.qty||1)+q; else items.push({...item, qty:q});
+    this.write(items); toast('Added to cart'); this.open();
+  },
   remove(i){ const items=this.read(); items.splice(i,1); this.write(items); },
-  count(){ return this.read().length; },
+  /* Change a line's quantity by ±1; drop the line at zero. */
+  step(i,d){ const items=this.read(); if(!items[i]) return; const q=(items[i].qty||1)+d;
+    if(q<=0) items.splice(i,1); else items[i].qty=Math.min(99,q); this.write(items); },
+  count(){ return this.read().reduce((s,x)=>s+(x.qty||1),0); },
   /* Bulk gift-tag pricing: every complete 10 single gift tags is charged at the
      gifttags 'mix10' set price instead of 10 × the single price. Returns the
      amount to knock off the line-item subtotal (0 when fewer than 10). */
   giftDiscount(){
     const giftIds = new Set(productsIn('gifttags').map(p=>p.id));
-    const n = this.read().filter(x=>x.ref && x.ref.t==='v' && x.ref.k==='single' && giftIds.has(x.ref.p)).length;
+    const n = this.read().filter(x=>x.ref && x.ref.t==='v' && x.ref.k==='single' && giftIds.has(x.ref.p)).reduce((s,x)=>s+(x.qty||1),0);
     const tiers = (CATEGORIES.gifttags && CATEGORIES.gifttags.tiers) || [];
     const per10  = (tiers.find(t=>t.key==='mix10')  || {}).price;
     const single = (tiers.find(t=>t.key==='single') || {}).price;
     if(n < 10 || per10==null || single==null) return 0;
     return Math.max(0, Math.floor(n/10) * (10*single - per10));
   },
-  total(){ return this.read().reduce((s,x)=>s+x.price,0) - this.giftDiscount(); },
+  total(){ return this.read().reduce((s,x)=>s+x.price*(x.qty||1),0) - this.giftDiscount(); },
   open(){ document.getElementById('cartScrim')?.classList.add('open'); document.getElementById('cartDrawer')?.classList.add('open'); },
   close(){ document.getElementById('cartScrim')?.classList.remove('open'); document.getElementById('cartDrawer')?.classList.remove('open'); },
   render(){
@@ -164,11 +172,17 @@ const Cart = {
     if(!items.length){ body.innerHTML='<div class="cart-empty">Your cart is quiet.<br>Find a town worth keeping.</div>'; }
     else{
       const disc=this.giftDiscount();
-      body.innerHTML=items.map((it,i)=>`<div class="cart-line">
+      body.innerHTML=items.map((it,i)=>{
+        const q=it.qty||1, single=it.ref&&it.ref.k==='orig';   // originals are one-of-a-kind
+        const ctl = single
+          ? `<button class="rm" onclick="Cart.remove(${i})">Remove</button>`
+          : `<div class="qty"><button class="qbtn" onclick="Cart.step(${i},-1)" aria-label="Decrease">−</button><span class="qn">${q}</span><button class="qbtn" onclick="Cart.step(${i},1)" aria-label="Increase">+</button><button class="rm" onclick="Cart.remove(${i})">Remove</button></div>`;
+        return `<div class="cart-line">
         <img src="${it.img}" alt="">
         <div class="meta"><div class="t">${it.title}</div><div class="s">${it.edition}</div>
-        <button class="rm" onclick="Cart.remove(${i})">Remove</button></div>
-        <div class="t" style="font-size:1rem">${ZAR(it.price)}</div></div>`).join('')
+        ${ctl}</div>
+        <div class="t" style="font-size:1rem">${ZAR(it.price*q)}</div></div>`;
+      }).join('')
         + (disc>0 ? `<div class="cart-line cart-discount">
         <div class="meta"><div class="t">Gift-tag bulk discount</div><div class="s">Every 10 tags priced as a set of 10</div></div>
         <div class="t" style="font-size:1rem">−${ZAR(disc)}</div></div>` : '');
@@ -243,7 +257,7 @@ Checkout.submit = async function(e){
   const buyer = { name: g('name'), email: g('email') };
   const ship  = { line1:g('line1'), line2:g('line2'), city:g('city'), province:g('province'),
                   postcode:g('postcode'), country:'South Africa', phone:g('phone'), method:g('shipping') };
-  const items = Cart.read().map(l => ({ ref: l.ref, qty: 1 }));
+  const items = Cart.read().map(l => ({ ref: l.ref, qty: l.qty || 1 }));
   try {
     const res = await fetch(SUPABASE_URL + '/functions/v1/create-order', {
       method: 'POST',
