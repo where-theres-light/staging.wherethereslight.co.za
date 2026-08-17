@@ -105,8 +105,7 @@ type is reported as "already on the list".
   each type so one doesn't lock out the other), and inserts the row. A duplicate
   returns `{ ok: true, already: true }`, which the page shows as "already on the
   list"; over the limit returns `429`.
-- **`functions/_shared/rate-limit.ts`** + **`../db/004_rate_limits.sql`** — the
-  rate limiter (see below).
+- **`../db/004_rate_limits.sql`** — the rate limiter (see below).
 - **`ui/shared.js`** (inside the `//online` block) POSTs to
   `functions/v1/subscribe` with the publishable key.
 
@@ -135,8 +134,9 @@ so the count is kept in the database, where it is incremented atomically:
 - **`rate_limit_hit(key, limit, window_seconds)`** — records a hit and returns
   `allowed` / `remaining` / `retry_after` in a single atomic statement, so
   concurrent callers cannot race past the limit.
-- **`functions/_shared/rate-limit.ts`** — the `rateLimit(...)` helper the
-  functions call. It **fails open** (returns `null`) if the limiter itself
+- The **`rateLimit(...)` helper** the functions call. Each function carries its
+  own copy (edge functions are deployed standalone, so the helpers are duplicated
+  rather than shared). It **fails open** (returns `null`) if the limiter itself
   errors, so a transient database problem never blocks genuine requests.
 
 Old buckets are harmless but accumulate; a scheduled job (e.g. pg_cron) can
@@ -161,14 +161,14 @@ SHA-256 hash, so a session can't be tied back to an address.
   (hashed) IP (**100 visits per IP per 10 min**), geolocates the IP on the
   session's first sight, and appends the visit storing only `ip_hash`. A
   returning session just bumps `last_seen`.
-- **`functions/_shared/geo.ts`** — the IP → location lookup. Uses **ipapi.co**
-  (free, no key) by default; override with the `GEO_API_URL` / `GEO_API_KEY`
-  function secrets. It is best-effort — any failure or a private/unknown IP just
-  stores the session without a location.
-- **`functions/_shared/hash.ts`** — the salted-SHA-256 IP hash, shared with
+- The **`geolocate(...)` helper** inside `functions/track/index.ts` — the IP →
+  location lookup. Uses **ipapi.co** (free, no key) by default; override with the
+  `GEO_API_URL` / `GEO_API_KEY` function secrets. It is best-effort — any failure
+  or a private/unknown IP just stores the session without a location.
+- The **`hashIp(...)` helper** — the salted-SHA-256 IP hash, duplicated in
   `subscribe` (which also hashes the IP in its rate-limit key). Set **`IP_HASH_SALT`**
   as a function secret so hashes can't be brute-forced back across the small IPv4
-  space.
+  space — and use the **same salt** for both functions.
 - **`ui/shared.js`** (inside the `//online` block) fires a fire-and-forget
   beacon to `functions/v1/track` on every page load. Metrics never block or
   affect the page; the offline `dev` build strips the call entirely.

@@ -1,6 +1,4 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { rateLimit } from '../_shared/rate-limit.ts';
-import { hashIp } from '../_shared/hash.ts';
 
 // subscribe — records a mailing-list email ("Signup for future communication").
 //
@@ -33,6 +31,74 @@ function clientIp(req: Request): string {
   if (xff) return xff.split(',')[0].trim();
   return req.headers.get('x-real-ip')?.trim() || 'unknown';
 }
+
+// ---------------------------------------------------------------------------
+// One-way IP hashing.
+//
+// The raw client IP is used only transiently (the rate-limit key) and never
+// stored; what the limiter sees is this salted SHA-256 hash. The salt is a
+// secret (function env `IP_HASH_SALT`) so the small IPv4 space cannot simply be
+// brute-forced back from a hash — set it in production. Without it the hash
+// still removes plaintext IPs, but offers no real pre-image resistance.
+
+const SALT = Deno.env.get('IP_HASH_SALT') ?? '';
+
+async function hashIp(ip: string): Promise<string> {
+  const data = new TextEncoder().encode(`${SALT}|${ip}`);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ---------------------------------------------------------------------------
+// Fixed-window rate limiter.
+//
+// Backed by the `rate_limits` table via the `rate_limit_hit` SQL function
+// (db/004_rate_limits.sql), which increments the current window's counter and
+// reports the verdict atomically. Keeping the state in the database means the
+// limit holds across function instances and cold starts, which an in-memory
+// counter cannot.
+
+// Structural type: just the `.rpc` we use, so this needs no dependency on the
+// supabase-js type exports.
+type RpcClient = {
+  rpc: (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: { message: string } | null }>;
+};
+
+interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;   // remaining allowance in this window
+  retryAfter: number;  // seconds until the window resets (0 while allowed)
+}
+
+// Record a hit against `key` and return whether it is within `limit` for the
+// current `windowSeconds` window. Returns null if the limiter itself errors, so
+// callers can decide to fail open (a limiter outage shouldn't block real users).
+async function rateLimit(
+  supabase: RpcClient,
+  key: string,
+  opts: { limit: number; windowSeconds: number },
+): Promise<RateLimitResult | null> {
+  const { data, error } = await supabase.rpc('rate_limit_hit', {
+    p_key: key,
+    p_limit: opts.limit,
+    p_window_seconds: opts.windowSeconds,
+  });
+  if (error) {
+    console.error('[rate-limit]', error.message);
+    return null;
+  }
+  // The SQL function RETURNS TABLE, so PostgREST hands back a one-row array.
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { allowed: boolean; remaining: number; retry_after: number }
+    | undefined;
+  if (!row) return null;
+  return { allowed: row.allowed, remaining: row.remaining, retryAfter: row.retry_after };
+}
+
+// ---------------------------------------------------------------------------
 
 Deno.serve(async (req: Request): Promise<Response> => {
   const origin = req.headers.get('origin') ?? '';
