@@ -57,6 +57,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (!EMAIL_RE.test(email) || email.length > 254)
     return json({ error: 'Please enter a valid email' }, 400);
   const source = String(payload?.source ?? 'footer').slice(0, 60);
+  const topic = payload?.topic ? String(payload.topic).slice(0, 80) : null;  // e.g. an upcoming piece
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
 
@@ -69,7 +70,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json({ error: 'Too many signups — please try again later' }, 429,
       { 'Retry-After': String(rl.retryAfter) });
 
-  const { error } = await supabase.from('signups').insert({ email, source });
+  const { error } = await supabase.from('signups').insert({ email, source, topic });
   if (error) {
     if (error.code === '23505') return json({ ok: true, already: true });  // duplicate email
     console.error('[signup]', error.message);

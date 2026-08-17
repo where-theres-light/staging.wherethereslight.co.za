@@ -169,6 +169,15 @@ p{margin:0 0 1em;}
 .signup-done h4{color:var(--green);font-family:var(--serif);font-size:1.6rem;font-weight:500;margin:0 0 8px;}
 .signup-done p{color:var(--ink-soft);font-size:1rem;line-height:1.6;margin:0;}
 
+/* inline "Notify me" form on the Upcoming page */
+.notify-form{display:flex;gap:10px;flex-wrap:wrap;align-items:center;max-width:440px;}
+.notify-form[hidden]{display:none;}
+.notify-form input{flex:1;min-width:200px;font-family:var(--sans);font-size:.95rem;color:var(--ink);background:var(--paper-2);border:1px solid var(--mist);border-radius:2px;padding:13px 14px;}
+.notify-form input:focus{outline:none;border-color:var(--sage);}
+.notify-form .signup-btn{flex:none;}
+.notify .signup-done{text-align:left;padding:0;}
+.notify .signup-done h4{font-size:1.3rem;}
+
 /* toast */
 .toast{position:fixed;bottom:28px;left:50%;transform:transl(-50%,20px);translate:-50% 20px;background:var(--green);color:var(--paper);padding:14px 24px;border-radius:3px;font-size:.88rem;box-shadow:0 10px 30px rgba(0,0,0,.2);opacity:0;visibility:hidden;transition:.3s;z-index:100;}
 .toast.show{opacity:1;visibility:visible;translate:-50% 0;}

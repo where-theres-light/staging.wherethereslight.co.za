@@ -78,16 +78,24 @@ price server-side, so a tampered cart can never change what is charged.
 
 ## Mailing-list signups
 
-The footer's **"Signup for future communication"** link (`signup.html`) records
-an email in the `signups` table. Like orders, the table is **not writable with
-the publishable key** (RLS on, no public policies) — every signup goes through
-the **`signup` edge function**, which writes as service role. Routing it through
-a function is what makes the signup **rate-limited**: the browser has no write
-path that skips the limiter, and the address list can never be read back from
-the client (only via the dashboard / service role).
+Two places collect emails into the `signups` table: the footer's **"Signup for
+future communication"** link (`signup.html`) and the **"Notify me when
+available"** button on the Upcoming page. Like orders, the table is **not
+writable with the publishable key** (RLS on, no public policies) — every signup
+goes through the **`signup` edge function**, which writes as service role.
+Routing it through a function is what makes the signup **rate-limited**: the
+browser has no write path that skips the limiter, and the address list can never
+be read back from the client (only via the dashboard / service role).
+
+Each row records where it came from and what it was about:
+
+- **`source`** — `footer` (general list) or `upcoming` (the notify button).
+- **`topic`** — the thing they asked about, e.g. the upcoming piece
+  `grasse-van-die-veld`; null for a general list signup.
 
 - **`../db/003_signups.sql`** — the `signups` table (RLS on, no policies; a
-  `CHECK` validates the email; a unique index on `lower(email)` de-dupes).
+  `CHECK` validates the email; a unique index on `lower(email)` de-dupes;
+  `source` / `topic` tag where the signup came from).
 - **`functions/signup/`** — validates the email, rate-limits by client IP
   (default **5 signups per IP per hour**), and inserts the row. A duplicate
   returns `{ ok: true, already: true }`, which the page shows as "already on the

@@ -253,16 +253,21 @@ const Checkout = {
    the preview just acknowledges without sending anything; the //online block
    below swaps in the real Supabase insert for production. */
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+/* Any signup form drives this: the footer page (signup.html) and the "Notify me"
+   button on Upcoming. A form may carry hidden `source`/`topic` fields (which
+   page / which upcoming piece) and a `data-done` override for its thank-you
+   line; both default sensibly when absent. */
 const Signup = {
   /* Replace the form with a thank-you message (idempotent, both builds). */
   done(form, msg){
-    form.innerHTML = `<div class="signup-done"><h4>You're on the list</h4><p>${msg}</p></div>`;
+    const m = msg || form.dataset.done || "Thanks for signing up — we'll be in touch.";
+    form.innerHTML = `<div class="signup-done"><h4>You're on the list</h4><p>${m}</p></div>`;
   },
   submit(e){
     e.preventDefault();
     const email = (new FormData(e.target).get('email') || '').toString().trim();
     if(!EMAIL_RE.test(email)){ toast('Please enter a valid email'); return; }
-    Signup.done(e.target, "Thanks for signing up — we'll be in touch.");
+    Signup.done(e.target);
   }
 };
 
@@ -271,9 +276,13 @@ Signup.submit = async function(e){
   e.preventDefault();
   const form = e.target;
   const btn = form.querySelector('.signup-btn');
-  const email = (new FormData(form).get('email') || '').toString().trim().toLowerCase();
+  const label = btn ? btn.textContent : '';   // each form keeps its own button text
+  const fd = new FormData(form);
+  const email = (fd.get('email') || '').toString().trim().toLowerCase();
   if(!EMAIL_RE.test(email)){ toast('Please enter a valid email'); return; }
-  btn.disabled = true; btn.textContent = 'Signing up…';
+  const source = (fd.get('source') || 'footer').toString();
+  const topic  = (fd.get('topic')  || '').toString() || null;   // which upcoming piece, if any
+  if(btn){ btn.disabled = true; btn.textContent = 'Signing up…'; }
   try {
     // Routed through the signup edge function, which rate-limits by IP and
     // writes as service role — the table is not writable with the public key.
@@ -284,22 +293,20 @@ Signup.submit = async function(e){
         apikey: SUPABASE_ANON,
         Authorization: 'Bearer ' + SUPABASE_ANON,
       },
-      body: JSON.stringify({ email, source: 'footer' }),
+      body: JSON.stringify({ email, source, topic }),
     });
     const out = await res.json().catch(() => ({}));
     if(res.ok){
-      Signup.done(form, out.already
-        ? "You're already signed up — thank you."
-        : "Thanks for signing up — we'll be in touch.");
+      Signup.done(form, out.already ? "You're already on the list — thank you." : '');
       return;
     }
     toast(res.status === 429
       ? 'Too many signups — please try again in a little while'
       : (out.error || 'Could not sign you up — please try again'));
-    btn.disabled = false; btn.textContent = 'Sign up';
+    if(btn){ btn.disabled = false; btn.textContent = label; }
   } catch(err){
     toast('Network error — please try again');
-    btn.disabled = false; btn.textContent = 'Sign up';
+    if(btn){ btn.disabled = false; btn.textContent = label; }
   }
 };
 //online-end

@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS signups (
                   email ~* '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'
                   AND char_length(email) <= 254
                 ),
-  source      TEXT,                    -- where they signed up, e.g. 'footer'
+  source      TEXT,                    -- where they signed up: 'footer', 'upcoming'
+  topic       TEXT,                    -- what they asked about, e.g. the upcoming
+                                       -- piece 'grasse-van-die-veld' (null = general list)
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
