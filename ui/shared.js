@@ -169,43 +169,43 @@ function toast(msg){
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
 }
 /* ---------- Checkout ---------- */
-/* Base (offline/dev) behaviour: real payments need the back-end, so the preview
-   build just says so. The //online block below replaces it with the PayFast
-   flow in production. */
+/* The shipping form renders in every build; only the final payment step
+   differs. Real payments need the back-end, so offline (dev) submitting the
+   form just says checkout isn't available; the //online block below swaps in
+   the PayFast flow for production. */
 const Checkout = {
-  start(){ toast('Checkout is not available in this preview'); }
+  start(){
+    const items = Cart.read();
+    if(!items.length){ toast('Your cart is empty'); return; }
+    Cart.open();
+    const body = document.getElementById('cartBody');
+    if(!body) return;
+    body.innerHTML = `
+      <form id="coForm" class="checkout-form">
+        <h4>Shipping details</h4>
+        <label>Full name<input name="name" required autocomplete="name"></label>
+        <label>Email<input name="email" type="email" required autocomplete="email"></label>
+        <label>Address<input name="line1" required autocomplete="address-line1"></label>
+        <label>Suburb / complex<input name="line2" autocomplete="address-line2"></label>
+        <div class="co-row">
+          <label>City<input name="city" required autocomplete="address-level2"></label>
+          <label>Province<input name="province" autocomplete="address-level1"></label>
+        </div>
+        <div class="co-row">
+          <label>Postal code<input name="postcode" required autocomplete="postal-code"></label>
+          <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
+        </div>
+        <p class="co-note">Shipping ${ZAR(150)} · secure payment via PayFast.</p>
+        <button type="submit" class="btn btn-primary co-pay">Pay ${ZAR(Cart.total()+150)}</button>
+        <button type="button" class="btn btn-ghost co-back">Back to cart</button>
+      </form>`;
+    document.getElementById('coForm').addEventListener('submit', Checkout.submit);
+    body.querySelector('.co-back').addEventListener('click', ()=>Cart.render());
+  },
+  submit(e){ e.preventDefault(); toast('Checkout is not available in this preview'); }
 };
 
 //online-start
-Checkout.start = function(){
-  const items = Cart.read();
-  if(!items.length){ toast('Your cart is empty'); return; }
-  Cart.open();
-  const body = document.getElementById('cartBody');
-  if(!body) return;
-  body.innerHTML = `
-    <form id="coForm" class="checkout-form">
-      <h4>Shipping details</h4>
-      <label>Full name<input name="name" required autocomplete="name"></label>
-      <label>Email<input name="email" type="email" required autocomplete="email"></label>
-      <label>Address<input name="line1" required autocomplete="address-line1"></label>
-      <label>Suburb / complex<input name="line2" autocomplete="address-line2"></label>
-      <div class="co-row">
-        <label>City<input name="city" required autocomplete="address-level2"></label>
-        <label>Province<input name="province" autocomplete="address-level1"></label>
-      </div>
-      <div class="co-row">
-        <label>Postal code<input name="postcode" required autocomplete="postal-code"></label>
-        <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
-      </div>
-      <p class="co-note">Shipping ${ZAR(150)} · secure payment via PayFast.</p>
-      <button type="submit" class="btn btn-primary co-pay">Pay ${ZAR(Cart.total()+150)}</button>
-      <button type="button" class="btn btn-ghost co-back">Back to cart</button>
-    </form>`;
-  document.getElementById('coForm').addEventListener('submit', Checkout.submit);
-  body.querySelector('.co-back').addEventListener('click', ()=>Cart.render());
-};
-
 Checkout.submit = async function(e){
   e.preventDefault();
   const btn = e.target.querySelector('.co-pay');
