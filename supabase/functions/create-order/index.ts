@@ -76,7 +76,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { buyer, ship, items } = payload ?? {};
 
   if (!buyer?.name || !buyer?.email)                  return json({ error: 'Missing your name or email' }, 400);
-  if (!ship?.line1 || !ship?.city || !ship?.postcode) return json({ error: 'Missing shipping address' }, 400);
+  // Delivery method decides shipping cost; self-pickup needs no address.
+  const method = ship?.method === 'pickup' ? 'pickup' : 'deliver';
+  if (method === 'deliver' && (!ship?.line1 || !ship?.city || !ship?.postcode))
+    return json({ error: 'Missing shipping address' }, 400);
   if (!Array.isArray(items) || !items.length)         return json({ error: 'Your cart is empty' }, 400);
   if (items.length > 50)                              return json({ error: 'Too many items' }, 400);
 
@@ -117,7 +120,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   subtotal = Math.round(subtotal * 100) / 100;
-  const shipping = SHIPPING_FLAT;
+  const shipping = method === 'pickup' ? 0 : SHIPPING_FLAT;
   const amount = Math.round((subtotal + shipping) * 100) / 100;
   if (amount < 5) return json({ error: 'Order total too low' }, 400);
 
