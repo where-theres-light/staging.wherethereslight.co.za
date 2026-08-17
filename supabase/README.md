@@ -87,15 +87,18 @@ Routing it through a function is what makes the signup **rate-limited**: the
 browser has no write path that skips the limiter, and the address list can never
 be read back from the client (only via the dashboard / service role).
 
-Each row records where it came from and what it was about:
+Each row records **what** was subscribed to via `subscribe_type`:
 
-- **`source`** — `footer` (general list) or `upcoming` (the notify button).
-- **`topic`** — the thing they asked about, e.g. the upcoming piece
-  `grasse-van-die-veld`; null for a general list signup.
+- **`1`** — future communication (the footer general list).
+- **`2`** — "Grasse van die Veld" availability notification (the Upcoming button).
+
+Uniqueness is per `(email, subscribe_type)`, so one person can be on the general
+list and request the Grasse notification independently; a repeat of the same
+type is reported as "already on the list".
 
 - **`../db/003_signups.sql`** — the `signups` table (RLS on, no policies; a
-  `CHECK` validates the email; a unique index on `lower(email)` de-dupes;
-  `source` / `topic` tag where the signup came from).
+  `CHECK` validates the email; `subscribe_type` is a `SMALLINT` checked to
+  `IN (1, 2)`; a unique index on `(lower(email), subscribe_type)` de-dupes).
 - **`functions/signup/`** — validates the email, rate-limits by client IP
   (default **5 signups per IP per hour**), and inserts the row. A duplicate
   returns `{ ok: true, already: true }`, which the page shows as "already on the

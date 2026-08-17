@@ -254,9 +254,9 @@ const Checkout = {
    below swaps in the real Supabase insert for production. */
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 /* Any signup form drives this: the footer page (signup.html) and the "Notify me"
-   button on Upcoming. A form may carry hidden `source`/`topic` fields (which
-   page / which upcoming piece) and a `data-done` override for its thank-you
-   line; both default sensibly when absent. */
+   button on Upcoming. A form may carry a hidden `subscribe_type` field (1 =
+   future communication, 2 = Grasse notification) and a `data-done` override for
+   its thank-you line; both default sensibly when absent. */
 const Signup = {
   /* Replace the form with a thank-you message (idempotent, both builds). */
   done(form, msg){
@@ -280,8 +280,7 @@ Signup.submit = async function(e){
   const fd = new FormData(form);
   const email = (fd.get('email') || '').toString().trim().toLowerCase();
   if(!EMAIL_RE.test(email)){ toast('Please enter a valid email'); return; }
-  const source = (fd.get('source') || 'footer').toString();
-  const topic  = (fd.get('topic')  || '').toString() || null;   // which upcoming piece, if any
+  const subscribeType = Number(fd.get('subscribe_type')) === 2 ? 2 : 1;   // 1 = future comms, 2 = Grasse
   if(btn){ btn.disabled = true; btn.textContent = 'Signing up…'; }
   try {
     // Routed through the signup edge function, which rate-limits by IP and
@@ -293,7 +292,7 @@ Signup.submit = async function(e){
         apikey: SUPABASE_ANON,
         Authorization: 'Bearer ' + SUPABASE_ANON,
       },
-      body: JSON.stringify({ email, source, topic }),
+      body: JSON.stringify({ email, subscribe_type: subscribeType }),
     });
     const out = await res.json().catch(() => ({}));
     if(res.ok){

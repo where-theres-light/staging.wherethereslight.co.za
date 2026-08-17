@@ -9,21 +9,25 @@
 -- be harvested from the client.
 
 CREATE TABLE IF NOT EXISTS signups (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email       TEXT NOT NULL
-                CHECK (
-                  email ~* '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'
-                  AND char_length(email) <= 254
-                ),
-  source      TEXT,                    -- where they signed up: 'footer', 'upcoming'
-  topic       TEXT,                    -- what they asked about, e.g. the upcoming
-                                       -- piece 'grasse-van-die-veld' (null = general list)
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email          TEXT NOT NULL
+                   CHECK (
+                     email ~* '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'
+                     AND char_length(email) <= 254
+                   ),
+  -- What they subscribed to:
+  --   1 = future communication (footer general list)
+  --   2 = "Grasse van die Veld" availability notification (Upcoming page)
+  subscribe_type SMALLINT NOT NULL DEFAULT 1
+                   CHECK (subscribe_type IN (1, 2)),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- One row per address, case-insensitively. A repeat signup hits this and the
--- edge function reports it as "already on the list".
-CREATE UNIQUE INDEX IF NOT EXISTS signups_email_key ON signups (lower(email));
+-- One row per (address, subscribe type), case-insensitively — a person can be
+-- on the general list and request the Grasse notification independently. A
+-- repeat of the same type hits this and the edge function reports it as
+-- "already on the list".
+CREATE UNIQUE INDEX IF NOT EXISTS signups_email_type_key ON signups (lower(email), subscribe_type);
 
 ALTER TABLE signups ENABLE ROW LEVEL SECURITY;
 
