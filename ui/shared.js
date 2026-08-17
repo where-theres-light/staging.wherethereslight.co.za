@@ -182,23 +182,23 @@ const Checkout = {
     if(!body) return;
     body.innerHTML = `
       <form id="coForm" class="checkout-form">
-        <h4>Shipping details</h4>
+        <h4>Your details</h4>
         <label>Full name<input name="name" required autocomplete="name"></label>
         <label>Email<input name="email" type="email" required autocomplete="email"></label>
-        <label>Address<input name="line1" required autocomplete="address-line1"></label>
-        <label>Suburb / complex<input name="line2" autocomplete="address-line2"></label>
-        <div class="co-row">
-          <label>City<input name="city" required autocomplete="address-level2"></label>
-          <label>Province<input name="province" autocomplete="address-level1"></label>
-        </div>
-        <div class="co-row">
-          <label>Postal code<input name="postcode" required autocomplete="postal-code"></label>
-          <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
-        </div>
+        <label>Phone<input name="phone" type="tel" autocomplete="tel"></label>
         <label>Delivery<select name="shipping" class="co-ship">
           <option value="deliver">Shipping — ${ZAR(150)}</option>
           <option value="pickup">Self pickup — no shipping cost</option>
         </select></label>
+        <div class="co-ship-fields">
+          <label>Address<input name="line1" required autocomplete="address-line1"></label>
+          <label>Suburb / complex<input name="line2" autocomplete="address-line2"></label>
+          <div class="co-row">
+            <label>City<input name="city" required autocomplete="address-level2"></label>
+            <label>Province<input name="province" autocomplete="address-level1"></label>
+          </div>
+          <label>Postal code<input name="postcode" required autocomplete="postal-code"></label>
+        </div>
         <p class="co-note">Secure payment via PayFast.</p>
         <button type="submit" class="btn btn-primary co-pay">Pay ${ZAR(Cart.total()+150)}</button>
         <button type="button" class="btn btn-ghost co-back">Back to cart</button>
@@ -206,8 +206,12 @@ const Checkout = {
     document.getElementById('coForm').addEventListener('submit', Checkout.submit);
     body.querySelector('.co-back').addEventListener('click', ()=>Cart.render());
     const shipSel = body.querySelector('.co-ship'), payBtn = body.querySelector('.co-pay');
+    const shipFields = body.querySelector('.co-ship-fields');
     shipSel.addEventListener('change', ()=>{
-      payBtn.textContent = `Pay ${ZAR(Cart.total() + (shipSel.value==='pickup' ? 0 : 150))}`;
+      const pickup = shipSel.value === 'pickup';
+      payBtn.textContent = `Pay ${ZAR(Cart.total() + (pickup ? 0 : 150))}`;
+      shipFields.hidden = pickup;   // hide the delivery address for self-pickup
+      ['line1','city','postcode'].forEach(n=>{ const el=shipFields.querySelector(`[name="${n}"]`); if(el) el.required = !pickup; });
     });
   },
   submit(e){ e.preventDefault(); toast('Checkout is not available in this preview'); }
