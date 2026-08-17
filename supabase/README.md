@@ -78,24 +78,53 @@ price server-side, so a tampered cart can never change what is charged.
 
 ## Mailing-list signups
 
-The footer's **"Signup for future communication"** link (`signup.html`) writes an
-email into a **write-only** table — RLS on, an INSERT-only policy, no SELECT
-policy — filled straight from the browser with the publishable key (no edge
-function). Anyone may add their own address, but the list can never be read back
-from the client, only via the dashboard / service role.
+The footer's **"Signup for future communication"** link (`signup.html`) records
+an email in the `signups` table. Like orders, the table is **not writable with
+the publishable key** (RLS on, no public policies) — every signup goes through
+the **`signup` edge function**, which writes as service role. Routing it through
+a function is what makes the signup **rate-limited**: the browser has no write
+path that skips the limiter, and the address list can never be read back from
+the client (only via the dashboard / service role).
 
-- **`../db/003_signups.sql`** — the `signups` table (RLS on; `INSERT` granted to
-  `anon`/`authenticated` with a policy that validates the email; no read policy).
-  A unique index on `lower(email)` de-dupes; a repeat signup returns 409, which
-  the page shows as "already on the list".
-- **`ui/shared.js`** (inside the `//online` block) inserts with
-  `Prefer: return=minimal`, so the write needs no SELECT grant.
+- **`../db/003_signups.sql`** — the `signups` table (RLS on, no policies; a
+  `CHECK` validates the email; a unique index on `lower(email)` de-dupes).
+- **`functions/signup/`** — validates the email, rate-limits by client IP
+  (default **5 signups per IP per hour**), and inserts the row. A duplicate
+  returns `{ ok: true, already: true }`, which the page shows as "already on the
+  list"; over the limit returns `429`.
+- **`functions/_shared/rate-limit.ts`** + **`../db/004_rate_limits.sql`** — the
+  rate limiter (see below).
+- **`ui/shared.js`** (inside the `//online` block) POSTs to
+  `functions/v1/signup` with the publishable key.
 
 ### Setup
 
-Run the migration — paste `db/003_signups.sql` into the SQL editor (or
-`supabase db push`). It is idempotent (`CREATE ... IF NOT EXISTS`,
-`DROP POLICY IF EXISTS` + `CREATE POLICY`). No secrets and no function to deploy;
-it uses the same public `SUPABASE_URL` / publishable key already in `shared.js`.
-The dev build strips the insert, so the offline preview just acknowledges the
-form without sending anything.
+1. Run **`db/003_signups.sql`** and **`db/004_rate_limits.sql`** in the SQL
+   editor (or `supabase db push`). Both are idempotent.
+2. Deploy the function with JWT verification off:
+
+   ```bash
+   supabase functions deploy signup --no-verify-jwt
+   ```
+
+   It needs no extra secrets (`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` are
+   provided automatically). The dev build strips the online call, so the offline
+   preview just acknowledges the form without sending anything.
+
+## Rate limiting
+
+`db/004_rate_limits.sql` adds a small **fixed-window** rate limiter that any edge
+function can use. Edge functions are stateless and may run as several instances,
+so the count is kept in the database, where it is incremented atomically:
+
+- **`rate_limits`** table — one row per `(key, window)` bucket; RLS on with no
+  policies (service role only).
+- **`rate_limit_hit(key, limit, window_seconds)`** — records a hit and returns
+  `allowed` / `remaining` / `retry_after` in a single atomic statement, so
+  concurrent callers cannot race past the limit.
+- **`functions/_shared/rate-limit.ts`** — the `rateLimit(...)` helper the
+  functions call. It **fails open** (returns `null`) if the limiter itself
+  errors, so a transient database problem never blocks genuine requests.
+
+Old buckets are harmless but accumulate; a scheduled job (e.g. pg_cron) can
+purge them — see the cleanup query at the foot of `db/004_rate_limits.sql`.

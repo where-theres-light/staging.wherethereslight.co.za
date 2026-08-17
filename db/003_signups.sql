@@ -1,36 +1,31 @@
 -- Email signups: "Signup for future communication" (footer → signup.html)
 --
--- A write-only mailing list. Unlike the catalogue (public read) and orders
--- (no public access at all), this table is filled straight from the browser
--- with the publishable key, so RLS is enabled with a single INSERT policy and
--- NO SELECT policy: anon/authenticated may add their own email but can never
--- read the list back (so the address list cannot be harvested). The list is
--- read only by the project owner via the dashboard / service role.
---
--- The browser inserts with `Prefer: return=minimal`, so no SELECT grant is
--- needed for the insert to succeed.
+-- Written only by the `signup` edge function, which connects as service role.
+-- Like orders, RLS is enabled with NO policies, so anon/authenticated cannot
+-- read or write it directly. Going through the function (rather than a direct
+-- PostgREST insert with the publishable key) is what lets it be rate-limited:
+-- the browser has no write path that skips the limiter. The list is read only
+-- by the project owner via the dashboard / service role, so addresses can never
+-- be harvested from the client.
 
 CREATE TABLE IF NOT EXISTS signups (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email       TEXT NOT NULL,
+  email       TEXT NOT NULL
+                CHECK (
+                  email ~* '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'
+                  AND char_length(email) <= 254
+                ),
   source      TEXT,                    -- where they signed up, e.g. 'footer'
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- One row per address, case-insensitively. A repeat signup hits this and
--- PostgREST returns 409, which the page treats as "already on the list".
+-- One row per address, case-insensitively. A repeat signup hits this and the
+-- edge function reports it as "already on the list".
 CREATE UNIQUE INDEX IF NOT EXISTS signups_email_key ON signups (lower(email));
 
 ALTER TABLE signups ENABLE ROW LEVEL SECURITY;
 
--- INSERT-only for the public roles: they may add a row whose email looks valid,
--- but there is no SELECT/UPDATE/DELETE policy, so the list stays write-only.
+-- Deny all direct access; the signup edge function connects as service role.
+-- (Undo the earlier direct-insert grant/policy if a prior version was applied.)
 DROP POLICY IF EXISTS signups_insert ON signups;
-CREATE POLICY signups_insert ON signups
-  FOR INSERT TO anon, authenticated
-  WITH CHECK (
-    email ~* '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'
-    AND char_length(email) <= 254
-  );
-
-GRANT INSERT ON signups TO anon, authenticated;
+REVOKE INSERT ON signups FROM anon, authenticated;

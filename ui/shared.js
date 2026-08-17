@@ -275,19 +275,27 @@ Signup.submit = async function(e){
   if(!EMAIL_RE.test(email)){ toast('Please enter a valid email'); return; }
   btn.disabled = true; btn.textContent = 'Signing up…';
   try {
-    const res = await fetch(SUPABASE_URL + '/rest/v1/signups', {
+    // Routed through the signup edge function, which rate-limits by IP and
+    // writes as service role — the table is not writable with the public key.
+    const res = await fetch(SUPABASE_URL + '/functions/v1/signup', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON,
         Authorization: 'Bearer ' + SUPABASE_ANON,
-        Prefer: 'return=minimal',   // no SELECT policy on the write-only table
       },
       body: JSON.stringify({ email, source: 'footer' }),
     });
-    if(res.ok){ Signup.done(form, "Thanks for signing up — we'll be in touch."); return; }
-    if(res.status === 409){ Signup.done(form, "You're already signed up — thank you."); return; }
-    toast('Could not sign you up — please try again');
+    const out = await res.json().catch(() => ({}));
+    if(res.ok){
+      Signup.done(form, out.already
+        ? "You're already signed up — thank you."
+        : "Thanks for signing up — we'll be in touch.");
+      return;
+    }
+    toast(res.status === 429
+      ? 'Too many signups — please try again in a little while'
+      : (out.error || 'Could not sign you up — please try again'));
     btn.disabled = false; btn.textContent = 'Sign up';
   } catch(err){
     toast('Network error — please try again');
