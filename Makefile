@@ -39,6 +39,7 @@ stage: clean
 	$(call compose,$(SRC)/gift-tags.html,$(MAP),$(DIST)/gift-tags.html)
 	$(call compose,$(SRC)/townscapes.html,$(MAP),$(DIST)/townscapes.html)
 	$(call compose,$(SRC)/upcoming.html,$(MAP),$(DIST)/upcoming.html)
+	$(call compose,$(SRC)/subscribe.html,$(MAP),$(DIST)/subscribe.html)
 	$(call compose,$(SRC)/success.html,$(MAP),$(DIST)/success.html)
 	$(call compose,$(SRC)/cancel.html,$(MAP),$(DIST)/cancel.html)
 	@cp $(SRC)/styles.css $(SRC)/shared.js $(DIST)/

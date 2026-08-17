@@ -56,7 +56,14 @@
         <div class="sub">A new study in line and grass</div>
         <p>Pure line, no architecture: the fragile life-force that survives design, given the whole page for once.</p>
         <p>Prints and originals will be announced here first.</p>
-        <button class="btn btn-primary notify" onclick="toast('We\u2019ll let you know when it\u2019s ready')">Notify me when available</button>
+        <div class="notify">
+          <button type="button" class="btn btn-primary notify-open">Notify me when available</button>
+          <form class="notify-form" hidden data-done="We'll email you the moment Grasse van die Veld is ready.">
+            <input name="email" type="email" required autocomplete="email" placeholder="you@example.com" aria-label="Email">
+            <input type="hidden" name="subscribe_type" value="2">
+            <button type="submit" class="btn btn-primary subscribe-btn">Notify me</button>
+          </form>
+        </div>
       </div>
     </div>
   </section>
@@ -84,7 +91,7 @@
             <span>@where_theres_light</span>
           </div>
         </a>
-        <a href="signup.html">Signup for future communication</a>
+        <a href="subscribe.html">Signup for future communication</a>
       </div>
     </div>
     <div class="foot-bottom">
@@ -105,5 +112,14 @@
 </aside>
 
 <script src="shared.js"></script>
+<script>
+  // "Notify me" reveals the email field and hands submission to the shared
+  // subscribe pipeline (tagged subscribe_type=2, the Grasse notification).
+  document.querySelectorAll('.notify').forEach(box=>{
+    const open = box.querySelector('.notify-open'), form = box.querySelector('.notify-form');
+    open.addEventListener('click', ()=>{ open.hidden = true; form.hidden = false; form.querySelector('input[name="email"]').focus(); });
+    form.addEventListener('submit', Subscribe.submit);
+  });
+</script>
 </body>
 </html>

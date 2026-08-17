@@ -1,15 +1,23 @@
 # Edge-function config (read by the Supabase CLI).
 #
-# Both checkout functions run with JWT verification OFF:
+# All four functions run with JWT verification OFF:
 #   - payfast-notify is called by PayFast, which sends no Supabase key.
-#   - create-order is called from the browser with only the publishable key.
-# Server-side validation lives inside the functions themselves.
+#   - create-order, subscribe and track are called from the browser with only the
+#     publishable key.
+# Server-side validation (and, for subscribe/track, rate limiting) lives inside
+# the functions themselves.
 #
 # If deploying from the dashboard instead of the CLI, toggle "Verify JWT" off
-# for both functions there. Or deploy with: supabase functions deploy <name> --no-verify-jwt
+# for each function there. Or deploy with: supabase functions deploy <name> --no-verify-jwt
 
 [functions.create-order]
 verify_jwt = false
 
 [functions.payfast-notify]
+verify_jwt = false
+
+[functions.subscribe]
+verify_jwt = false
+
+[functions.track]
 verify_jwt = false

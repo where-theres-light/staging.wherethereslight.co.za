@@ -247,6 +247,69 @@ const Checkout = {
   submit(e){ e.preventDefault(); toast('Checkout is not available in this preview'); }
 };
 
+/* ---------- Mailing-list subscribe ---------- */
+/* "Signup for future communication" (footer → subscribe.html). The form renders
+   in every build; only the write differs. Offline (dev) there is no back-end, so
+   the preview just acknowledges without sending anything; the //online block
+   below swaps in the real Supabase insert for production. */
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+/* Any subscribe form drives this: the footer page (subscribe.html) and the
+   "Notify me" button on Upcoming. A form may carry a hidden `subscribe_type`
+   field (1 = future communication, 2 = Grasse notification) and a `data-done`
+   override for its thank-you line; both default sensibly when absent. */
+const Subscribe = {
+  /* Replace the form with a thank-you message (idempotent, both builds). */
+  done(form, msg){
+    const m = msg || form.dataset.done || "Thanks for signing up — we'll be in touch.";
+    form.innerHTML = `<div class="subscribe-done"><h4>You're on the list</h4><p>${m}</p></div>`;
+  },
+  submit(e){
+    e.preventDefault();
+    const email = (new FormData(e.target).get('email') || '').toString().trim();
+    if(!EMAIL_RE.test(email)){ toast('Please enter a valid email'); return; }
+    Subscribe.done(e.target);
+  }
+};
+
+//online-start
+Subscribe.submit = async function(e){
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('.subscribe-btn');
+  const label = btn ? btn.textContent : '';   // each form keeps its own button text
+  const fd = new FormData(form);
+  const email = (fd.get('email') || '').toString().trim().toLowerCase();
+  if(!EMAIL_RE.test(email)){ toast('Please enter a valid email'); return; }
+  const subscribeType = Number(fd.get('subscribe_type')) === 2 ? 2 : 1;   // 1 = future comms, 2 = Grasse
+  if(btn){ btn.disabled = true; btn.textContent = 'Signing up…'; }
+  try {
+    // Routed through the subscribe edge function, which rate-limits by IP and
+    // writes as service role — the table is not writable with the public key.
+    const res = await fetch(SUPABASE_URL + '/functions/v1/subscribe', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON,
+        Authorization: 'Bearer ' + SUPABASE_ANON,
+      },
+      body: JSON.stringify({ email, subscribe_type: subscribeType }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if(res.ok){
+      Subscribe.done(form, out.already ? "You're already on the list — thank you." : '');
+      return;
+    }
+    toast(res.status === 429
+      ? 'Too many signups — please try again in a little while'
+      : (out.error || 'Could not sign you up — please try again'));
+    if(btn){ btn.disabled = false; btn.textContent = label; }
+  } catch(err){
+    toast('Network error — please try again');
+    if(btn){ btn.disabled = false; btn.textContent = label; }
+  }
+};
+//online-end
+
 //online-start
 Checkout.submit = async function(e){
   e.preventDefault();
@@ -299,3 +362,26 @@ document.addEventListener('DOMContentLoaded',()=>{
     });
   }
 });
+
+//online-start
+/* Anonymous page-visit metrics. A random per-browser session token (localStorage)
+   plus the server-seen IP identify a session; the `track` edge function records
+   the visit and geolocates the IP. Fire-and-forget: it never blocks the page and
+   swallows every error, so metrics can't affect the browsing experience. */
+(function trackVisit(){
+  try{
+    const KEY = 'wtl_session';
+    let token = localStorage.getItem(KEY);
+    if(!token){
+      token = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+      localStorage.setItem(KEY, token);
+    }
+    fetch(SUPABASE_URL + '/functions/v1/track', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', apikey: SUPABASE_ANON, Authorization: 'Bearer ' + SUPABASE_ANON },
+      body: JSON.stringify({ token, path: location.pathname, referrer: document.referrer || null }),
+      keepalive: true,   // still sent if the page is unloading
+    }).catch(()=>{});
+  }catch(e){ /* metrics are best-effort */ }
+})();
+//online-end

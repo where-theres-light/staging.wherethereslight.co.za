@@ -75,3 +75,117 @@ the edge functions (service role). Buyers check out as guests (no login).
 
 The browser calls these with the publishable key; `create-order` recomputes the
 price server-side, so a tampered cart can never change what is charged.
+
+## Mailing-list subscriptions
+
+Two places collect emails into the `subscriptions` table: the footer's **"Signup
+for future communication"** link (`subscribe.html`) and the **"Notify me when
+available"** button on the Upcoming page. Like orders, the table is **not
+writable with the publishable key** (RLS on, no public policies) — every
+subscribe goes through the **`subscribe` edge function**, which writes as service
+role. Routing it through a function is what makes it **rate-limited**: the
+browser has no write path that skips the limiter, and the address list can never
+be read back from the client (only via the dashboard / service role).
+
+Each row records **what** was subscribed to via `subscribe_type`:
+
+- **`1`** — future communication (the footer general list).
+- **`2`** — "Grasse van die Veld" availability notification (the Upcoming button).
+
+Uniqueness is per `(email, subscribe_type)`, so one person can be on the general
+list and request the Grasse notification independently; a repeat of the same
+type is reported as "already on the list".
+
+- **`../db/003_subscriptions.sql`** — the `subscriptions` table (RLS on, no
+  policies; a `CHECK` validates the email; `subscribe_type` is a `SMALLINT`
+  checked to `IN (1, 2)`; a unique index on `(lower(email), subscribe_type)`
+  de-dupes).
+- **`functions/subscribe/`** — validates the email, rate-limits by client IP
+  **per subscribe type** (default **5 per IP per hour**, counted separately for
+  each type so one doesn't lock out the other), and inserts the row. A duplicate
+  returns `{ ok: true, already: true }`, which the page shows as "already on the
+  list"; over the limit returns `429`.
+- **`functions/_shared/rate-limit.ts`** + **`../db/004_rate_limits.sql`** — the
+  rate limiter (see below).
+- **`ui/shared.js`** (inside the `//online` block) POSTs to
+  `functions/v1/subscribe` with the publishable key.
+
+### Setup
+
+1. Run **`db/003_subscriptions.sql`** and **`db/004_rate_limits.sql`** in the SQL
+   editor (or `supabase db push`). Both are idempotent.
+2. Deploy the function with JWT verification off:
+
+   ```bash
+   supabase functions deploy subscribe --no-verify-jwt
+   ```
+
+   It needs no extra secrets (`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` are
+   provided automatically). The dev build strips the online call, so the offline
+   preview just acknowledges the form without sending anything.
+
+## Rate limiting
+
+`db/004_rate_limits.sql` adds a small **fixed-window** rate limiter that any edge
+function can use. Edge functions are stateless and may run as several instances,
+so the count is kept in the database, where it is incremented atomically:
+
+- **`rate_limits`** table — one row per `(key, window)` bucket; RLS on with no
+  policies (service role only).
+- **`rate_limit_hit(key, limit, window_seconds)`** — records a hit and returns
+  `allowed` / `remaining` / `retry_after` in a single atomic statement, so
+  concurrent callers cannot race past the limit.
+- **`functions/_shared/rate-limit.ts`** — the `rateLimit(...)` helper the
+  functions call. It **fails open** (returns `null`) if the limiter itself
+  errors, so a transient database problem never blocks genuine requests.
+
+Old buckets are harmless but accumulate; a scheduled job (e.g. pg_cron) can
+purge them — see the cleanup query at the foot of `db/004_rate_limits.sql`.
+
+## Page-visit metrics
+
+Anonymous page-visit tracking, written only by the **`track` edge function**
+(service role) — both tables are RLS on with no policies, so the browser can
+neither read nor write them, and the owner reads them via the dashboard.
+
+The raw IP is **never stored**. The function uses it only in-memory — to
+geolocate the session and as a rate-limit key — and persists only a salted
+SHA-256 hash, so a session can't be tied back to an address.
+
+- **`../db/005_metrics.sql`** — two tables:
+  - **`sessions`** — one anonymous browser, unique on `(token, ip_hash)`: a
+    random token kept in the visitor's `localStorage` paired with the hashed IP.
+    Geolocated **once**, when first recorded.
+  - **`page_visits`** — one row per page view, referencing a session.
+- **`functions/track/`** — pairs the token with the client IP, rate-limits by
+  (hashed) IP (**100 visits per IP per 10 min**), geolocates the IP on the
+  session's first sight, and appends the visit storing only `ip_hash`. A
+  returning session just bumps `last_seen`.
+- **`functions/_shared/geo.ts`** — the IP → location lookup. Uses **ipapi.co**
+  (free, no key) by default; override with the `GEO_API_URL` / `GEO_API_KEY`
+  function secrets. It is best-effort — any failure or a private/unknown IP just
+  stores the session without a location.
+- **`functions/_shared/hash.ts`** — the salted-SHA-256 IP hash, shared with
+  `subscribe` (which also hashes the IP in its rate-limit key). Set **`IP_HASH_SALT`**
+  as a function secret so hashes can't be brute-forced back across the small IPv4
+  space.
+- **`ui/shared.js`** (inside the `//online` block) fires a fire-and-forget
+  beacon to `functions/v1/track` on every page load. Metrics never block or
+  affect the page; the offline `dev` build strips the call entirely.
+
+### Setup
+
+1. Run **`db/005_metrics.sql`** in the SQL editor (needs `db/004_rate_limits.sql`
+   for the limiter). Idempotent.
+2. Deploy the function with JWT verification off:
+
+   ```bash
+   supabase functions deploy track --no-verify-jwt
+   ```
+
+   Set **`IP_HASH_SALT`** to a long random secret (`supabase secrets set
+   IP_HASH_SALT=…`) so IP hashes have real pre-image resistance. `GEO_API_URL` /
+   `GEO_API_KEY` are optional — only to point at a different geo provider.
+
+Both staging and production share one project, so staging visits are recorded
+alongside production ones; the geolocation lets you tell them apart if needed.

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Amelia's House — Where There's Light</title>
+<title>Sign up — Where There's Light</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -15,7 +15,7 @@
       <span class="tagline">Townscapes<br>by Laurita</span>
     </a>
     <nav class="nav">
-      <div class="nav-item"><a class="nav-link" href="amelias-house.html">Collection</a>
+      <div class="nav-item"><a class="nav-link" href="townscapes.html">Collection</a>
         <div class="submenu"><div class="submenu-inner">
           <a href="townscapes.html">Townscapes</a>
           <a href="amelias-house.html">Amelia's House</a>
@@ -31,12 +31,20 @@
 
 <main>
   <section class="coll-hero wrap">
-    <span class="eyebrow" id="collEyebrow"></span>
-    <h1 id="collTitle"></h1>
-    <p class="intro" id="collIntro"></p>
+    <span class="eyebrow">Stay in touch</span>
+    <h1>Sign up for future communication</h1>
+    <p class="intro">New townscapes, print releases and the occasional note from the studio — sent now and then, never often. Leave your email and we'll keep you posted.</p>
   </section>
-  <section class="coll-body wrap">
-    <div id="collGrid"></div>
+  <section class="subscribe wrap">
+    <form id="subscribeForm" class="checkout-form subscribe-form" novalidate>
+      <label>Email
+        <input name="email" type="email" required autocomplete="email" placeholder="you@example.com">
+      </label>
+      <input type="hidden" name="subscribe_type" value="1">
+
+      <p class="co-note">We'll only email you about Where There's Light. No spam, unsubscribe any time.</p>
+      <button type="submit" class="btn btn-primary subscribe-btn">Sign up</button>
+    </form>
   </section>
 </main>
 
@@ -83,6 +91,6 @@
 </aside>
 
 <script src="shared.js"></script>
-<script>withCatalog(()=>renderCollection('amelias','collGrid'));</script>
+<script>document.getElementById('subscribeForm').addEventListener('submit', Subscribe.submit);</script>
 </body>
 </html>
