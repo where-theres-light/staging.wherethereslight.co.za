@@ -118,7 +118,9 @@ document.getElementById('tagRows').innerHTML=tiers.map(t=>`
   <div class="price-row">
     <div class="info"><div class="nm">${t.name}</div><div class="sub">${t.sub} · printed on cardstock</div></div>
     <div class="pr">${ZAR(t.price)}</div>
-    <button class="btn btn-ghost" onclick="Cart.add({id:'gifttag-${t.key}',title:'Gift Tags — ${t.name}',img:R('logo','assets/logo.svg'),edition:'${t.sub}',price:${t.price},ref:{t:'t',c:'gifttags',k:'${t.key}'}})">Add to cart</button>
+    ${t.key==='single'
+      ? `<div class="btn btn-disabled" aria-disabled="true">Select below</div>`
+      : `<button class="btn btn-ghost" onclick="Cart.add({id:'gifttag-${t.key}',title:'Gift Tags — ${t.name}',img:R('logo','assets/logo.svg'),edition:'${t.sub}',price:${t.price},ref:{t:'t',c:'gifttags',k:'${t.key}'}})">Add to cart</button>`}
   </div>`).join('');
 
 // Designs are the gift-tag products; each is sold as a single variant.

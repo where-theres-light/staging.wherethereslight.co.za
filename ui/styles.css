@@ -97,6 +97,7 @@ p{margin:0 0 1em;}
 .btn-primary:hover{background:var(--gold);}
 .btn-ghost{background:none;border-color:color-mix(in srgb,var(--green) 30%,transparent);color:var(--green);}
 .btn-ghost:hover{background:var(--green);color:var(--paper);}
+.btn-disabled{background:var(--paper-2);color:var(--ink-soft);border-color:var(--mist);cursor:default;pointer-events:none;}
 
 /* ---- Footer ---- */
 .site-foot{background:var(--green);color:color-mix(in srgb,var(--paper) 86%,transparent);margin-top:0;}
