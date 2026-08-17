@@ -247,6 +247,55 @@ const Checkout = {
   submit(e){ e.preventDefault(); toast('Checkout is not available in this preview'); }
 };
 
+/* ---------- Mailing-list signup ---------- */
+/* "Signup for future communication" (footer → signup.html). The form renders in
+   every build; only the write differs. Offline (dev) there is no back-end, so
+   the preview just acknowledges without sending anything; the //online block
+   below swaps in the real Supabase insert for production. */
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const Signup = {
+  /* Replace the form with a thank-you message (idempotent, both builds). */
+  done(form, msg){
+    form.innerHTML = `<div class="signup-done"><h4>You're on the list</h4><p>${msg}</p></div>`;
+  },
+  submit(e){
+    e.preventDefault();
+    const email = (new FormData(e.target).get('email') || '').toString().trim();
+    if(!EMAIL_RE.test(email)){ toast('Please enter a valid email'); return; }
+    Signup.done(e.target, "Thanks for signing up — we'll be in touch.");
+  }
+};
+
+//online-start
+Signup.submit = async function(e){
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('.signup-btn');
+  const email = (new FormData(form).get('email') || '').toString().trim().toLowerCase();
+  if(!EMAIL_RE.test(email)){ toast('Please enter a valid email'); return; }
+  btn.disabled = true; btn.textContent = 'Signing up…';
+  try {
+    const res = await fetch(SUPABASE_URL + '/rest/v1/signups', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON,
+        Authorization: 'Bearer ' + SUPABASE_ANON,
+        Prefer: 'return=minimal',   // no SELECT policy on the write-only table
+      },
+      body: JSON.stringify({ email, source: 'footer' }),
+    });
+    if(res.ok){ Signup.done(form, "Thanks for signing up — we'll be in touch."); return; }
+    if(res.status === 409){ Signup.done(form, "You're already signed up — thank you."); return; }
+    toast('Could not sign you up — please try again');
+    btn.disabled = false; btn.textContent = 'Sign up';
+  } catch(err){
+    toast('Network error — please try again');
+    btn.disabled = false; btn.textContent = 'Sign up';
+  }
+};
+//online-end
+
 //online-start
 Checkout.submit = async function(e){
   e.preventDefault();

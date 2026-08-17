@@ -75,3 +75,27 @@ the edge functions (service role). Buyers check out as guests (no login).
 
 The browser calls these with the publishable key; `create-order` recomputes the
 price server-side, so a tampered cart can never change what is charged.
+
+## Mailing-list signups
+
+The footer's **"Signup for future communication"** link (`signup.html`) writes an
+email into a **write-only** table — RLS on, an INSERT-only policy, no SELECT
+policy — filled straight from the browser with the publishable key (no edge
+function). Anyone may add their own address, but the list can never be read back
+from the client, only via the dashboard / service role.
+
+- **`../db/003_signups.sql`** — the `signups` table (RLS on; `INSERT` granted to
+  `anon`/`authenticated` with a policy that validates the email; no read policy).
+  A unique index on `lower(email)` de-dupes; a repeat signup returns 409, which
+  the page shows as "already on the list".
+- **`ui/shared.js`** (inside the `//online` block) inserts with
+  `Prefer: return=minimal`, so the write needs no SELECT grant.
+
+### Setup
+
+Run the migration — paste `db/003_signups.sql` into the SQL editor (or
+`supabase db push`). It is idempotent (`CREATE ... IF NOT EXISTS`,
+`DROP POLICY IF EXISTS` + `CREATE POLICY`). No secrets and no function to deploy;
+it uses the same public `SUPABASE_URL` / publishable key already in `shared.js`.
+The dev build strips the insert, so the offline preview just acknowledges the
+form without sending anything.
