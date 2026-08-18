@@ -234,7 +234,14 @@ const Checkout = {
         <button type="button" class="btn btn-ghost co-back">Back to cart</button>
       </form>`;
     document.getElementById('coForm').addEventListener('submit', Checkout.submit);
-    body.querySelector('.co-back').addEventListener('click', ()=>Cart.render());
+    // Lock the footer checkout button while the details form is up; the only way
+    // back to the active button is the form's own "Back to cart".
+    const coBtn = document.getElementById('checkoutBtn');
+    if(coBtn){ coBtn.disabled = true; coBtn.textContent = 'Checkout...'; }
+    body.querySelector('.co-back').addEventListener('click', ()=>{
+      if(coBtn){ coBtn.disabled = false; coBtn.textContent = 'Proceed to checkout'; }
+      Cart.render();
+    });
     const shipSel = body.querySelector('.co-ship'), payBtn = body.querySelector('.co-pay');
     const shipFields = body.querySelector('.co-ship-fields');
     shipSel.addEventListener('change', ()=>{
