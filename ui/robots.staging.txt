@@ -1,0 +1,6 @@
+# staging.wherethereslight.co.za — staging / offline preview. Keep out of search
+# indexes so it never competes with the live site. Copied to robots.txt by both
+# `make dev` and `make stg` (the two builds that deploy to the staging domain);
+# `make prd` ships robots.prd.txt (Allow: /) for the live site instead.
+User-agent: *
+Disallow: /
