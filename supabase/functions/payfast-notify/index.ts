@@ -11,9 +11,10 @@ import { crypto } from 'https://deno.land/std@0.224.0/crypto/mod.ts';
 //   3. amount    — amount_gross must equal the order's stored amount
 //   4. status    — only payment_status COMPLETE marks the order paid
 //
-// The order's `env` (sandbox|live) selects which PayFast host + passphrase to
-// use, so one project handles both — we look the order up first (by the
-// unverified m_payment_id) and verify everything against that env.
+// The order's session carries the `env` (sandbox|live) that selects which
+// PayFast host + passphrase to use, so one project handles both — we look the
+// order up first (by the unverified m_payment_id), read env from its session,
+// and verify everything against that env.
 //
 // Deploy with JWT verification OFF (PayFast sends no Supabase key):
 //   supabase functions deploy payfast-notify --no-verify-jwt
@@ -47,13 +48,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
 
-  // Look the order up first (env decides how we verify). Return 200 for
-  // unrecoverable cases so PayFast stops retrying.
+  // Look the order up first (env decides how we verify). The env lives on the
+  // order's session, not the order — embed it. Return 200 for unrecoverable
+  // cases so PayFast stops retrying.
   const { data: order } = await supabase.from('orders')
-    .select('id, amount, status, env').eq('id', data.m_payment_id).maybeSingle();
+    .select('id, amount, status, sessions(env)').eq('id', data.m_payment_id).maybeSingle();
   if (!order) return new Response('unknown order', { status: 200 });
 
-  const env = pfEnv(order.env === 'sandbox');
+  const orderEnv = (order as any).sessions?.env;
+  if (orderEnv !== 'sandbox' && orderEnv !== 'live')
+    return new Response('unknown order env', { status: 200 });
+
+  const env = pfEnv(orderEnv === 'sandbox');
 
   // 1. Signature — rebuild from received fields (minus signature), in order.
   const pairs = [...params].filter(([k]) => k !== 'signature');

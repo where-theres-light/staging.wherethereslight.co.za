@@ -1,0 +1,7 @@
+# wherethereslight.co.za — production. Open to search engines.
+# Copied to robots.txt by `make prd`; the staging builds ship robots.staging.txt
+# (Disallow: /) instead, so only the live site is indexed.
+User-agent: *
+Allow: /
+
+Sitemap: https://wherethereslight.co.za/sitemap.xml

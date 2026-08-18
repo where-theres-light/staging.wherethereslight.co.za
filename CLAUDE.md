@@ -25,8 +25,24 @@ The site is built with `make`. The builds differ in whether the **back-end
   production `CNAME`; PayFast runs **live** (prod origin).
 - **`make clean`** (`make c`) — removes the build output (`ui/dist`).
 
-`stg` and `prd` are the same online build; they differ only in the `CNAME`, and
-the sandbox-vs-live choice is made server-side by origin, not by the build.
+`stg` and `prd` are the same online build; they differ in the `CNAME` and the
+`robots.txt` (see below), and the sandbox-vs-live choice is made server-side by
+origin, not by the build.
+
+### `robots.txt`
+
+Each build writes a `robots.txt` so only the live site is indexed. `prd` ships
+`ui/robots.prd.txt` (`Allow: /`); `dev` and `stg` — both deploy to
+`staging.wherethereslight.co.za` — ship `ui/robots.staging.txt` (`Disallow: /`)
+to keep staging out of search results. The two source files are copied to
+`dist/robots.txt` by the matching target, so the source variants never ship.
+
+`prd` also generates a `sitemap.xml` (and its `robots.txt` links to it): the
+`prd` target emits `dist/sitemap.xml` from the `SITEMAP_PAGES` list — the
+indexable content pages, stamping each `lastmod` from the page's last git commit
+date. The dynamic `product.html` template and the transactional
+`success`/`cancel` pages are deliberately excluded. Staging builds ship no
+sitemap (they disallow indexing).
 
 ### How online calls are stripped
 

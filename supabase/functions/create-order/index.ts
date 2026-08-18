@@ -52,6 +52,57 @@ async function md5(s: string): Promise<string> {
   return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// One-way IP hashing — the same salted SHA-256 `track`/`subscribe` use, so the
+// order's session resolves against the (token, ip_hash) row track recorded. The
+// raw IP is used only in-memory (never stored); set IP_HASH_SALT to match the
+// other functions. (crypto.subtle.digest, not the std MD5 import above.)
+const SALT = Deno.env.get('IP_HASH_SALT') ?? '';
+
+function clientIp(req: Request): string {
+  const xff = req.headers.get('x-forwarded-for');
+  if (xff) return xff.split(',')[0].trim();
+  return req.headers.get('x-real-ip')?.trim() || 'unknown';
+}
+
+async function sha256Hex(s: string): Promise<string> {
+  const d = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+const hashIp = (ip: string) => sha256Hex(`${SALT}|${ip}`);
+
+// Resolve the browsing session for this checkout, creating it if `track` never
+// recorded one, so every order is tied to a session and its env lives there
+// (payfast-notify reads env through the order's session — there is no env column
+// on orders). Best-effort geo/isp are left to `track`; this only needs env.
+async function resolveSession(
+  supabase: ReturnType<typeof createClient>,
+  req: Request,
+  token: string,
+  env: 'sandbox' | 'live',
+): Promise<string | null> {
+  const ipHash = await hashIp(clientIp(req));
+  const nowIso = new Date().toISOString();
+  const userAgent = (req.headers.get('user-agent') ?? '').slice(0, 512) || null;
+
+  const { data: found } = await supabase.from('sessions')
+    .select('id').eq('token', token).eq('ip_hash', ipHash).maybeSingle();
+  if (found) {
+    await supabase.from('sessions').update({ last_seen: nowIso }).eq('id', found.id);
+    return found.id as string;
+  }
+
+  const { data: created, error } = await supabase.from('sessions')
+    .insert({ token, ip_hash: ipHash, env, user_agent: userAgent })
+    .select('id').single();
+  if (!error && created) return created.id as string;
+
+  // A concurrent visit may have created it — fetch that row.
+  const { data: retry } = await supabase.from('sessions')
+    .select('id').eq('token', token).eq('ip_hash', ipHash).maybeSingle();
+  return retry?.id ?? null;
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   const origin = req.headers.get('origin') ?? '';
   const envCfg = ORIGINS[origin];
@@ -74,6 +125,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   let payload: any;
   try { payload = await req.json(); } catch { return json({ error: 'Bad request' }, 400); }
   const { buyer, ship, items } = payload ?? {};
+  // The browser's metrics session token (localStorage `wtl_session`); fall back
+  // to a fresh one so the order can still be tied to a session (session_id is
+  // NOT NULL and carries the env payfast-notify verifies against).
+  const token = (String(payload?.token ?? '').trim() || globalThis.crypto.randomUUID()).slice(0, 128);
 
   if (!buyer?.name || !buyer?.email)                  return json({ error: 'Missing your name or email' }, 400);
   // Delivery method decides shipping cost; self-pickup needs no address.
@@ -151,13 +206,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const nameFirst = parts.shift() ?? '';
   const nameLast  = parts.join(' ');
 
+  // Tie the order to its browsing session; the session carries the env
+  // (sandbox|live) that payfast-notify verifies against, so this must succeed.
+  const sessionId = await resolveSession(supabase, req, token, sandbox ? 'sandbox' : 'live');
+  if (!sessionId) return json({ error: 'Could not create order' }, 500);
+
   const { data: order, error } = await supabase.from('orders').insert({
+    session_id: sessionId,
     buyer_name: String(buyer.name).trim(),
     buyer_email: String(buyer.email).trim(),
     ship_address: ship,
     items: lines,
     subtotal, shipping, amount,
-    env: sandbox ? 'sandbox' : 'live',
   }).select('id, order_token').single();
   if (error || !order) return json({ error: 'Could not create order' }, 500);
 

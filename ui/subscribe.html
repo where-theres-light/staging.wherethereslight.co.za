@@ -31,9 +31,9 @@
 
 <main>
   <section class="coll-hero wrap">
-    <span class="eyebrow">Stay in touch</span>
-    <h1>Sign up for future communication</h1>
-    <p class="intro">New townscapes, print releases and the occasional note from the studio — sent now and then, never often. Leave your email and we'll keep you posted.</p>
+    <span class="eyebrow" id="subEyebrow">Stay in touch</span>
+    <h1 id="subHeading">Sign up for future communication</h1>
+    <p class="intro" id="subIntro">New townscapes, print releases and the occasional note from the studio — sent now and then, never often. Leave your email and we'll keep you posted.</p>
   </section>
   <section class="subscribe wrap">
     <form id="subscribeForm" class="checkout-form subscribe-form" novalidate>
@@ -91,6 +91,22 @@
 </aside>
 
 <script src="shared.js"></script>
-<script>document.getElementById('subscribeForm').addEventListener('submit', Subscribe.submit);</script>
+<script>
+  // Grasse variant: reached via the Upcoming "Notify me" button
+  // (subscribe.html?list=grasse). Retag the form as subscribe_type=2 and swap in
+  // the Grasse copy; without the param this stays the general future-comms list.
+  (function(){
+    const form = document.getElementById('subscribeForm');
+    if(new URLSearchParams(location.search).get('list') === 'grasse'){
+      form.querySelector('[name="subscribe_type"]').value = '2';
+      form.dataset.done = "We'll email you the moment Grasse van die Veld is ready.";
+      document.getElementById('subEyebrow').textContent = 'Upcoming';
+      document.getElementById('subHeading').textContent = 'Notify me — Grasse van die Veld';
+      document.getElementById('subIntro').textContent = "Laurita's next series is on its way. Leave your email and we'll let you know the moment it's available.";
+      const btn = form.querySelector('.subscribe-btn'); if(btn) btn.textContent = 'Notify me';
+    }
+    form.addEventListener('submit', Subscribe.submit);
+  })();
+</script>
 </body>
 </html>
