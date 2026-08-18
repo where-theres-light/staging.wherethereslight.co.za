@@ -110,6 +110,8 @@ interface Geo {
   latitude?: number;
   longitude?: number;
   timezone?: string;
+  isp?: string;   // network operator / organization (ipapi `org`)
+  asn?: string;   // autonomous-system number, e.g. "AS36994"
 }
 
 const GEO_URL = (Deno.env.get('GEO_API_URL') ?? 'https://ipapi.co').replace(/\/$/, '');
@@ -146,6 +148,8 @@ async function geolocate(ip: string): Promise<Geo> {
       latitude:     num(d.latitude),
       longitude:    num(d.longitude),
       timezone:     str(d.timezone),
+      isp:          str(d.org),
+      asn:          str(d.asn),
     };
   } catch {
     return {};

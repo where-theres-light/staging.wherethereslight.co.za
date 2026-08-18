@@ -170,8 +170,11 @@ SHA-256 hash, so a session can't be tied back to an address.
 - **`../db/005_metrics.sql`** — two tables:
   - **`sessions`** — one anonymous browser, unique on `(token, ip_hash)`: a
     random token kept in the visitor's `localStorage` paired with the hashed IP.
-    Geolocated **once**, when first recorded.
+    Geolocated **once**, when first recorded — coarse location plus the network
+    operator (`isp` / `asn`), all best-effort and nullable.
   - **`page_visits`** — one row per page view, referencing a session.
+- **`../db/007_session_isp.sql`** — adds the `isp` / `asn` columns to `sessions`
+  (a later migration so a database that already ran `005` picks them up).
 - **`functions/track/`** — pairs the token with the client IP, rate-limits by
   (hashed) IP (**100 visits per IP per 10 min**), geolocates the IP on the
   session's first sight, and appends the visit storing only `ip_hash`. A

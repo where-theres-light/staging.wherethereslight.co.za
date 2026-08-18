@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   latitude     NUMERIC,
   longitude    NUMERIC,
   timezone     TEXT,
+  -- db/007_session_isp.sql adds `isp` / `asn` (the network operator behind the
+  -- IP), captured from the same geolocation lookup — see there.
   first_seen   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_seen    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
