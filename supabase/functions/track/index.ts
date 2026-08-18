@@ -29,6 +29,35 @@ function clientIp(req: Request): string {
 const cap = (v: unknown, n: number): string => String(v ?? '').slice(0, n);
 
 // ---------------------------------------------------------------------------
+// Bot / crawler filtering.
+//
+// This only decides what gets *counted*, never what gets served: the site is
+// static GitHub Pages, so a crawler always loads every page — SEO is untouched.
+// A matching request just isn't written to sessions/page_visits, so the metrics
+// reflect real human visits rather than automated traffic (search crawlers,
+// link-preview unfurlers, uptime monitors, headless automation).
+//
+// Matched against the User-Agent. The generic tokens (bot/crawler/spider/…)
+// catch the long tail — including search engines like Googlebot/Bingbot, which
+// carry "bot" — while the named entries cover common crawlers that don't. An
+// empty/absent UA is left through (recorded): real browsers always send one, and
+// dropping on its absence risks excluding privacy tools that strip it.
+const BOT_UA_RE = new RegExp([
+  'bot', 'crawl', 'spider', 'slurp', 'mediapartners', 'archiver', 'scraper',
+  'facebookexternalhit', 'facebot', 'ia_archiver', 'headless', 'phantomjs',
+  'puppeteer', 'playwright', 'selenium', 'webdriver', 'lighthouse', 'pingdom',
+  'uptimerobot', 'gtmetrix', 'chrome-lighthouse', 'google page speed',
+  'whatsapp', 'telegrambot', 'slackbot', 'discordbot', 'skypeuripreview',
+  'embedly', 'redditbot', 'applebot', 'petalbot', 'bytespider', 'dataforseo',
+  'semrush', 'ahrefs', 'mj12bot', 'dotbot', 'python-requests', 'axios',
+  'curl', 'wget', 'go-http-client', 'node-fetch', 'okhttp', 'java/', 'libwww',
+].join('|'), 'i');
+
+function isBot(ua: string | null): boolean {
+  return !!ua && BOT_UA_RE.test(ua);
+}
+
+// ---------------------------------------------------------------------------
 // One-way IP hashing.
 //
 // The raw client IP is used only transiently (rate-limit key, geolocation) and
@@ -175,6 +204,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (!allowed)                 return json({ error: 'Forbidden origin' }, 403);
   if (req.method !== 'POST')    return json({ error: 'Method not allowed' }, 405);
+
+  // Drop bot / crawler traffic before any work so it never lands in the metrics.
+  // 200 (not an error) so the fire-and-forget beacon treats it as done and never
+  // retries; nothing is served differently, so crawler access to the site — and
+  // SEO — is unaffected.
+  if (isBot(req.headers.get('user-agent'))) return json({ ok: true, bot: true });
 
   let payload: any;
   try { payload = await req.json(); } catch { return json({ error: 'Bad request' }, 400); }

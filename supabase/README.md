@@ -178,7 +178,12 @@ SHA-256 hash, so a session can't be tied back to an address.
 - **`functions/track/`** — pairs the token with the client IP, rate-limits by
   (hashed) IP (**100 visits per IP per 10 min**), geolocates the IP on the
   session's first sight, and appends the visit storing only `ip_hash`. A
-  returning session just bumps `last_seen`.
+  returning session just bumps `last_seen`. Requests whose **User-Agent** looks
+  like a bot/crawler (search engines, link-preview unfurlers, uptime monitors,
+  headless automation — the `BOT_UA_RE` denylist) are dropped up front with a
+  `200 { ok: true, bot: true }` and never recorded, so the metrics count real
+  human visits. This is metrics-only filtering: the site is static Pages, so
+  crawlers still load every page and **SEO is unaffected**.
 - The **`geolocate(...)` helper** inside `functions/track/index.ts` — the IP →
   location lookup. Uses **ipapi.co** (free, no key) by default; override with the
   `GEO_API_URL` / `GEO_API_KEY` function secrets. It is best-effort — any failure
