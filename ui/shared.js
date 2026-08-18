@@ -332,11 +332,15 @@ Checkout.submit = async function(e){
   const ship  = { line1:g('line1'), line2:g('line2'), city:g('city'), province:g('province'),
                   postcode:g('postcode'), country:'South Africa', phone:g('phone'), method:g('shipping') };
   const items = Cart.read().map(l => ({ ref: l.ref, qty: l.qty || 1 }));
+  // Same per-browser metrics token trackVisit sets, so the order ties back to
+  // its browsing session (which carries the env); absent only if storage is blocked.
+  let token = null;
+  try { token = localStorage.getItem('wtl_session'); } catch(e){ /* storage blocked */ }
   try {
     const res = await fetch(SUPABASE_URL + '/functions/v1/create-order', {
       method: 'POST',
       headers: { 'Content-Type':'application/json', apikey: SUPABASE_ANON, Authorization: 'Bearer ' + SUPABASE_ANON },
-      body: JSON.stringify({ buyer, ship, items }),
+      body: JSON.stringify({ buyer, ship, items, token }),
     });
     const out = await res.json();
     if(!res.ok){ toast(out.error || 'Could not start checkout'); btn.disabled=false; btn.textContent='Try again'; return; }

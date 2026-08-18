@@ -11,10 +11,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-const ORIGINS = new Set([
-  'https://staging.wherethereslight.co.za',
-  'https://wherethereslight.co.za',
-]);
+// Allowed browser origins → the environment the session belongs to. Stored on
+// the session (its single source of truth); orders read env through the session.
+const ORIGINS: Record<string, 'sandbox' | 'live'> = {
+  'https://staging.wherethereslight.co.za': 'sandbox',
+  'https://wherethereslight.co.za':         'live',
+};
 
 const RL_LIMIT = 100;     // visits recorded…
 const RL_WINDOW = 600;    // …per client IP per 10 minutes
@@ -189,7 +191,8 @@ async function geolocate(ip: string): Promise<Geo> {
 
 Deno.serve(async (req: Request): Promise<Response> => {
   const origin = req.headers.get('origin') ?? '';
-  const allowed = ORIGINS.has(origin);
+  const env = ORIGINS[origin];          // the session's environment (sandbox|live)
+  const allowed = !!env;
   const cors: Record<string, string> = {
     'Access-Control-Allow-Origin':  allowed ? origin : 'null',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -244,7 +247,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   } else {
     const geo = await geolocate(ip);   // raw IP, not stored
     const { data: created, error } = await supabase.from('sessions')
-      .insert({ token, ip_hash: ipHash, user_agent: cap(req.headers.get('user-agent'), 512) || null, ...geo })
+      .insert({ token, ip_hash: ipHash, env, user_agent: cap(req.headers.get('user-agent'), 512) || null, ...geo })
       .select('id').single();
     if (error) {
       // A concurrent first visit may have created it — fetch that row.

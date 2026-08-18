@@ -1,7 +1,35 @@
 # Supabase back-end
 
-The production catalogue (and, later, checkout/orders) lives in Supabase. The
-offline `dev` build never touches it — it seeds the same data from `ui/demo.js`.
+The production catalogue, checkout/orders, mailing list, and page-visit metrics
+live in Supabase. The offline `dev` build never touches it — it seeds the same
+catalogue data from `ui/demo.js`.
+
+The schema is **two migrations**: `db/001_catalog.sql` for the public,
+read-only product catalogue, and `db/002_sessions.sql` for everything else —
+`sessions` (the hub) plus every table that references it (`orders`,
+`subscriptions`, `page_visits`) and the shared `rate_limits`.
+
+## Sessions (the hub)
+
+`sessions` is the single home for everything describing a visitor's browser: the
+client token, the salted **IP hash**, the **environment** (`sandbox` for the
+staging origin, `live` for production), the user agent, the coarse geolocation,
+and the ISP / network (`isp` / `asn`). None of that is duplicated onto the other
+tables — they carry a `session_id` and read those attributes through it:
+
+- **`orders`** — `NOT NULL`, `ON DELETE RESTRICT` (an order is always tied to a
+  session, which cannot be purged while the order exists — so the order's env is
+  always reachable).
+- **`subscriptions`** — nullable, `ON DELETE SET NULL` (best-effort link).
+- **`page_visits`** — `NOT NULL`, `ON DELETE CASCADE` (visits die with their session).
+
+`rate_limits` is the one exception: it is infrastructure keyed by the transient
+IP hash (never a stored session column), so a client can't reset its allowance by
+rotating its session token — it does **not** reference `sessions`.
+
+A session is written by `track` on every page visit, and resolved-or-created by
+`create-order` too, so an order always has one. All of `db/002_sessions.sql` is
+service-role only (RLS on, no policies); the edge functions are the only write path.
 
 ## Catalogue
 
@@ -35,9 +63,13 @@ whether the data came from Supabase (prod) or the demo seed (dev).
 Orders are **user data** — restrictive RLS, no public policies — written only by
 the edge functions (service role). Buyers check out as guests (no login).
 
-- **`../db/002_orders.sql`** — the `orders` table (RLS on, no policies).
-- **`functions/create-order/`** — re-prices the cart from the catalogue, inserts
-  a pending order, returns the signed PayFast fields. Called by the browser.
+- **`../db/002_sessions.sql`** — defines the `orders` table (RLS on, no policies),
+  which references `sessions`. There is **no `env` column on orders** — the env
+  lives on the order's session (see *Sessions* above).
+- **`functions/create-order/`** — re-prices the cart from the catalogue, resolves
+  or creates the browsing session (tagging it with the env from the origin),
+  inserts a pending order tied to that session, and returns the signed PayFast
+  fields. Called by the browser.
 - **`functions/payfast-notify/`** — PayFast's ITN endpoint; verifies signature,
   validates with PayFast, checks the amount, and marks the order paid. The only
   thing that flips an order to `paid`.
@@ -45,11 +77,13 @@ the edge functions (service role). Buyers check out as guests (no login).
 
 ### Setup
 
-1. **Run the orders migration** — paste `db/002_orders.sql` into the SQL editor.
-   One project serves both environments. The edge functions choose PayFast
-   **sandbox vs live from the request origin** — `staging.wherethereslight.co.za`
-   → sandbox, `wherethereslight.co.za` → live — and tag each order's `env`
-   column accordingly, so test and real orders stay distinguishable.
+1. **Run the migration** — paste `db/002_sessions.sql` into the SQL editor (it
+   defines `orders` and its `sessions` hub). One project serves both
+   environments. The edge functions choose PayFast **sandbox vs live from the
+   request origin** — `staging.wherethereslight.co.za` → sandbox,
+   `wherethereslight.co.za` → live — and tag the order's **session** with that
+   env, so test and real orders stay distinguishable and `payfast-notify`
+   verifies each against the right PayFast.
 
 2. **Set function secrets** (Project → Edge Functions → Secrets, or
    `supabase secrets set`):
@@ -104,30 +138,25 @@ The browser sends the same per-browser metrics token, the function resolves the
 session by `(token, ip_hash)` — the same key `track` uses — and the link is
 best-effort: it stays null if no matching session is on record yet.
 
-- **`../db/003_subscriptions.sql`** — the `subscriptions` table (RLS on, no
+- **`../db/002_sessions.sql`** — defines the `subscriptions` table (RLS on, no
   policies; a `CHECK` validates the email; `subscribe_type` is a `SMALLINT`
   checked to `IN (1, 2)`; a unique index on `(lower(email), subscribe_type)`
-  de-dupes).
-- **`../db/006_subscription_session.sql`** — adds the nullable `session_id`
-  reference to `subscriptions` (a later migration because `sessions` only exists
-  from `005_metrics.sql`).
+  de-dupes; a nullable `session_id` references `sessions`).
 - **`functions/subscribe/`** — validates the email, rate-limits by client IP
   **per subscribe type** (default **5 per IP per hour**, counted separately for
   each type so one doesn't lock out the other), resolves the browsing session
   from the token + hashed IP, and inserts the row. A duplicate returns
   `{ ok: true, already: true }`, which the page shows as "already on the list";
   over the limit returns `429`.
-- **`../db/004_rate_limits.sql`** — the rate limiter (see below).
 - **`ui/shared.js`** (inside the `//online` block) POSTs to
   `functions/v1/subscribe` with the publishable key, including the `wtl_session`
   token so the signup can be attributed to its session.
 
 ### Setup
 
-1. Run **`db/003_subscriptions.sql`** and **`db/004_rate_limits.sql`** in the SQL
-   editor (or `supabase db push`). Both are idempotent. Run
-   **`db/006_subscription_session.sql`** too, after `db/005_metrics.sql` (it adds
-   the `session_id` reference and needs the `sessions` table to exist).
+1. Run **`db/002_sessions.sql`** in the SQL editor (or `supabase db push`) if you
+   have not already — it defines `subscriptions`, its `sessions` hub, and the
+   `rate_limits` limiter. Idempotent.
 2. Deploy the function with JWT verification off:
 
    ```bash
@@ -140,12 +169,13 @@ best-effort: it stays null if no matching session is on record yet.
 
 ## Rate limiting
 
-`db/004_rate_limits.sql` adds a small **fixed-window** rate limiter that any edge
+`db/002_sessions.sql` includes a small **fixed-window** rate limiter that any edge
 function can use. Edge functions are stateless and may run as several instances,
 so the count is kept in the database, where it is incremented atomically:
 
-- **`rate_limits`** table — one row per `(key, window)` bucket; RLS on with no
-  policies (service role only).
+- **`rate_limits`** table — one row per `(key, window)` bucket, keyed by the
+  transient IP hash (**not** the session, so a rotated token can't reset the
+  limit); RLS on with no policies (service role only).
 - **`rate_limit_hit(key, limit, window_seconds)`** — records a hit and returns
   `allowed` / `remaining` / `retry_after` in a single atomic statement, so
   concurrent callers cannot race past the limit.
@@ -155,7 +185,7 @@ so the count is kept in the database, where it is incremented atomically:
   errors, so a transient database problem never blocks genuine requests.
 
 Old buckets are harmless but accumulate; a scheduled job (e.g. pg_cron) can
-purge them — see the cleanup query at the foot of `db/004_rate_limits.sql`.
+purge them — see the cleanup query at the foot of `db/002_sessions.sql`.
 
 ## Page-visit metrics
 
@@ -167,14 +197,12 @@ The raw IP is **never stored**. The function uses it only in-memory — to
 geolocate the session and as a rate-limit key — and persists only a salted
 SHA-256 hash, so a session can't be tied back to an address.
 
-- **`../db/005_metrics.sql`** — two tables:
+- **`../db/002_sessions.sql`** — defines both:
   - **`sessions`** — one anonymous browser, unique on `(token, ip_hash)`: a
-    random token kept in the visitor's `localStorage` paired with the hashed IP.
-    Geolocated **once**, when first recorded — coarse location plus the network
-    operator (`isp` / `asn`), all best-effort and nullable.
+    random token kept in the visitor's `localStorage` paired with the hashed IP,
+    tagged with its `env`. Geolocated **once**, when first recorded — coarse
+    location plus the network operator (`isp` / `asn`), all best-effort and nullable.
   - **`page_visits`** — one row per page view, referencing a session.
-- **`../db/007_session_isp.sql`** — adds the `isp` / `asn` columns to `sessions`
-  (a later migration so a database that already ran `005` picks them up).
 - **`functions/track/`** — pairs the token with the client IP, rate-limits by
   (hashed) IP (**100 visits per IP per 10 min**), geolocates the IP on the
   session's first sight, and appends the visit storing only `ip_hash`. A
@@ -189,17 +217,19 @@ SHA-256 hash, so a session can't be tied back to an address.
   `GEO_API_URL` / `GEO_API_KEY` function secrets. It is best-effort — any failure
   or a private/unknown IP just stores the session without a location.
 - The **`hashIp(...)` helper** — the salted-SHA-256 IP hash, duplicated in
-  `subscribe` (which also hashes the IP in its rate-limit key). Set **`IP_HASH_SALT`**
+  `subscribe` and `create-order` (both resolve the session by `(token, ip_hash)`,
+  and `subscribe` also hashes the IP in its rate-limit key). Set **`IP_HASH_SALT`**
   as a function secret so hashes can't be brute-forced back across the small IPv4
-  space — and use the **same salt** for both functions.
+  space — and use the **same salt** for all three functions, or the hashes won't
+  match and sessions won't resolve.
 - **`ui/shared.js`** (inside the `//online` block) fires a fire-and-forget
   beacon to `functions/v1/track` on every page load. Metrics never block or
   affect the page; the offline `dev` build strips the call entirely.
 
 ### Setup
 
-1. Run **`db/005_metrics.sql`** in the SQL editor (needs `db/004_rate_limits.sql`
-   for the limiter). Idempotent.
+1. Run **`db/002_sessions.sql`** in the SQL editor if you have not already — it
+   defines `sessions`, `page_visits`, and the limiter. Idempotent.
 2. Deploy the function with JWT verification off:
 
    ```bash
@@ -207,8 +237,9 @@ SHA-256 hash, so a session can't be tied back to an address.
    ```
 
    Set **`IP_HASH_SALT`** to a long random secret (`supabase secrets set
-   IP_HASH_SALT=…`) so IP hashes have real pre-image resistance. `GEO_API_URL` /
-   `GEO_API_KEY` are optional — only to point at a different geo provider.
+   IP_HASH_SALT=…`) so IP hashes have real pre-image resistance — the **same**
+   salt across `track`, `subscribe`, and `create-order` so sessions resolve.
+   `GEO_API_URL` / `GEO_API_KEY` are optional — only to point at a different geo provider.
 
 Both staging and production share one project, so staging visits are recorded
 alongside production ones; the geolocation lets you tell them apart if needed.
