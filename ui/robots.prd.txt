@@ -3,3 +3,5 @@
 # (Disallow: /) instead, so only the live site is indexed.
 User-agent: *
 Allow: /
+
+Sitemap: https://wherethereslight.co.za/sitemap.xml

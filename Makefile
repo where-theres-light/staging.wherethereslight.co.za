@@ -9,6 +9,12 @@ SRC  := ui
 DIST := ui/dist
 MAP  := make/web.map
 
+# Production base URL + the indexable pages listed in sitemap.xml (prd only).
+# Deliberately omits the dynamic product template and the transactional
+# success/cancel pages — none is a standalone URL worth indexing.
+BASE          := https://wherethereslight.co.za
+SITEMAP_PAGES := index townscapes amelias-house gift-tags upcoming subscribe
+
 .PHONY: dev stg prd stage clean c
 
 # ---- dev: offline/staging build (back-end calls stripped) ----
@@ -31,6 +37,17 @@ stg: stage
 prd: stage
 	@echo "wherethereslight.co.za" > $(DIST)/CNAME
 	@cp $(SRC)/robots.prd.txt $(DIST)/robots.txt
+	@{ \
+	  echo '<?xml version="1.0" encoding="UTF-8"?>'; \
+	  echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'; \
+	  for n in $(SITEMAP_PAGES); do \
+	    if [ "$$n" = index ]; then loc="$(BASE)/"; else loc="$(BASE)/$$n.html"; fi; \
+	    mod=$$(git log -1 --format=%cs -- $(SRC)/$$n.html 2>/dev/null); \
+	    [ -n "$$mod" ] || mod=$$(date -u +%Y-%m-%d); \
+	    echo "  <url><loc>$$loc</loc><lastmod>$$mod</lastmod></url>"; \
+	  done; \
+	  echo '</urlset>'; \
+	} > $(DIST)/sitemap.xml
 	@echo "Built prd → $(DIST)"
 
 # ---- stage: compose pages + copy static files into a fresh dist ----

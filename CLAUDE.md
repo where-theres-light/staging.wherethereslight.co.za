@@ -37,6 +37,13 @@ Each build writes a `robots.txt` so only the live site is indexed. `prd` ships
 to keep staging out of search results. The two source files are copied to
 `dist/robots.txt` by the matching target, so the source variants never ship.
 
+`prd` also generates a `sitemap.xml` (and its `robots.txt` links to it): the
+`prd` target emits `dist/sitemap.xml` from the `SITEMAP_PAGES` list — the
+indexable content pages, stamping each `lastmod` from the page's last git commit
+date. The dynamic `product.html` template and the transactional
+`success`/`cancel` pages are deliberately excluded. Staging builds ship no
+sitemap (they disallow indexing).
+
 ### How online calls are stripped
 
 Back-end code in the JS source is fenced with comment markers, and `make dev`
