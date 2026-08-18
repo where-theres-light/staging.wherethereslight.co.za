@@ -96,23 +96,38 @@ Uniqueness is per `(email, subscribe_type)`, so one person can be on the general
 list and request the Grasse notification independently; a repeat of the same
 type is reported as "already on the list".
 
+Each signup is also tied back to the **browsing session** it came from (the
+metrics `sessions` row — see *Page-visit metrics* below), via a nullable
+`session_id` foreign key, so the owner can see where a signup originated (coarse
+location, user agent, first/last seen) without any raw IP on the subscription.
+The browser sends the same per-browser metrics token, the function resolves the
+session by `(token, ip_hash)` — the same key `track` uses — and the link is
+best-effort: it stays null if no matching session is on record yet.
+
 - **`../db/003_subscriptions.sql`** — the `subscriptions` table (RLS on, no
   policies; a `CHECK` validates the email; `subscribe_type` is a `SMALLINT`
   checked to `IN (1, 2)`; a unique index on `(lower(email), subscribe_type)`
   de-dupes).
+- **`../db/006_subscription_session.sql`** — adds the nullable `session_id`
+  reference to `subscriptions` (a later migration because `sessions` only exists
+  from `005_metrics.sql`).
 - **`functions/subscribe/`** — validates the email, rate-limits by client IP
   **per subscribe type** (default **5 per IP per hour**, counted separately for
-  each type so one doesn't lock out the other), and inserts the row. A duplicate
-  returns `{ ok: true, already: true }`, which the page shows as "already on the
-  list"; over the limit returns `429`.
+  each type so one doesn't lock out the other), resolves the browsing session
+  from the token + hashed IP, and inserts the row. A duplicate returns
+  `{ ok: true, already: true }`, which the page shows as "already on the list";
+  over the limit returns `429`.
 - **`../db/004_rate_limits.sql`** — the rate limiter (see below).
 - **`ui/shared.js`** (inside the `//online` block) POSTs to
-  `functions/v1/subscribe` with the publishable key.
+  `functions/v1/subscribe` with the publishable key, including the `wtl_session`
+  token so the signup can be attributed to its session.
 
 ### Setup
 
 1. Run **`db/003_subscriptions.sql`** and **`db/004_rate_limits.sql`** in the SQL
-   editor (or `supabase db push`). Both are idempotent.
+   editor (or `supabase db push`). Both are idempotent. Run
+   **`db/006_subscription_session.sql`** too, after `db/005_metrics.sql` (it adds
+   the `session_id` reference and needs the `sessions` table to exist).
 2. Deploy the function with JWT verification off:
 
    ```bash

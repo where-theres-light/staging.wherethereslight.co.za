@@ -288,6 +288,10 @@ Subscribe.submit = async function(e){
   const email = (fd.get('email') || '').toString().trim().toLowerCase();
   if(!EMAIL_RE.test(email)){ toast('Please enter a valid email'); return; }
   const subscribeType = Number(fd.get('subscribe_type')) === 2 ? 2 : 1;   // 1 = future comms, 2 = Grasse
+  // Same per-browser metrics token trackVisit sets, so the signup can be tied
+  // back to its browsing session; absent if metrics never ran (best-effort).
+  let token = null;
+  try { token = localStorage.getItem('wtl_session'); } catch(e){ /* storage blocked */ }
   if(btn){ btn.disabled = true; btn.textContent = 'Signing up…'; }
   try {
     // Routed through the subscribe edge function, which rate-limits by IP and
@@ -299,7 +303,7 @@ Subscribe.submit = async function(e){
         apikey: SUPABASE_ANON,
         Authorization: 'Bearer ' + SUPABASE_ANON,
       },
-      body: JSON.stringify({ email, subscribe_type: subscribeType }),
+      body: JSON.stringify({ email, subscribe_type: subscribeType, token }),
     });
     const out = await res.json().catch(() => ({}));
     if(res.ok){

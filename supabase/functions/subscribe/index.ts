@@ -127,21 +127,40 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // 1 = future communication (footer), 2 = Grasse notification (Upcoming);
   // default to the general list for anything unexpected.
   const subscribeType = Number(payload?.subscribe_type) === 2 ? 2 : 1;
+  // The browser's metrics session token (localStorage `wtl_session`), if the
+  // page sent it — used only to tie the signup back to its browsing session.
+  const token = String(payload?.token ?? '').trim().slice(0, 128);
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+
+  // The raw IP is used only in-memory (rate-limit key, and pairing with the
+  // session token below); only its salted hash is ever seen, never persisted.
+  const ipHash = await hashIp(clientIp(req));
 
   // Rate-limit by client IP (hashed — the raw IP is never persisted, not even in
   // the limiter key), per subscribe type, so hitting the limit on one (e.g. the
   // Grasse notification) doesn't lock the other out. Fail open if the limiter
   // itself errors, so a transient database problem never blocks a genuine subscribe.
-  const rl = await rateLimit(supabase, `subscribe:${subscribeType}:${await hashIp(clientIp(req))}`, {
+  const rl = await rateLimit(supabase, `subscribe:${subscribeType}:${ipHash}`, {
     limit: RL_LIMIT, windowSeconds: RL_WINDOW,
   });
   if (rl && !rl.allowed)
     return json({ error: 'Too many signups — please try again later' }, 429,
       { 'Retry-After': String(rl.retryAfter) });
 
-  const { error } = await supabase.from('subscriptions').insert({ email, subscribe_type: subscribeType });
+  // Best-effort: resolve the browsing session by the same (token, ip_hash) key
+  // the `track` function uses, so the signup can be attributed to it. Leaves it
+  // null if the page sent no token, no matching session is on record yet, or the
+  // lookup errors — a metrics link must never block a genuine subscribe.
+  let sessionId: string | null = null;
+  if (token) {
+    const { data: session } = await supabase.from('sessions')
+      .select('id').eq('token', token).eq('ip_hash', ipHash).maybeSingle();
+    if (session) sessionId = session.id;
+  }
+
+  const { error } = await supabase.from('subscriptions')
+    .insert({ email, subscribe_type: subscribeType, session_id: sessionId });
   if (error) {
     if (error.code === '23505') return json({ ok: true, already: true });  // duplicate email
     console.error('[subscribe]', error.message);

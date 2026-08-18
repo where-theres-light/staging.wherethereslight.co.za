@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   subscribe_type SMALLINT NOT NULL DEFAULT 1
                    CHECK (subscribe_type IN (1, 2)),
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  -- db/006_subscription_session.sql adds a nullable `session_id` referencing the
+  -- metrics `sessions` row this signup came from (that table exists only from 005,
+  -- so the link is a later migration). Best-effort, set by the subscribe function.
 );
 
 -- One row per (address, subscribe type), case-insensitively — a person can be
