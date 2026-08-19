@@ -72,8 +72,54 @@ the edge functions (service role). Buyers check out as guests (no login).
   fields. Called by the browser.
 - **`functions/payfast-notify/`** — PayFast's ITN endpoint; verifies signature,
   validates with PayFast, checks the amount, and marks the order paid. The only
-  thing that flips an order to `paid`.
+  thing that flips an order to `paid`. On that first transition it also sends the
+  buyer the **notice-of-order email** (see below).
 - **`config.toml`** — sets `verify_jwt = false` for both functions.
+
+### Notice-of-order email (Gmail API)
+
+When `payfast-notify` marks an order `paid` for the first time it emails the
+buyer an **HTML invoice** (an order confirmation / receipt — the business is not
+VAT-registered, so it is not a tax invoice). The send:
+
+- is built from the stored order snapshot (`items`, `subtotal`, `shipping`,
+  `amount`, buyer + shipping details), so nothing is recomputed;
+- fires **once** — the `already paid` guard short-circuits repeat ITNs;
+- is **best-effort** — any mail failure is logged and swallowed, never failing
+  the ITN (the order is paid regardless);
+- **no-ops silently** unless the `GMAIL_*` secrets below are set, so checkout
+  works before email is wired up.
+
+Mail is sent through the **Gmail API** (pure HTTPS, no SMTP) as a Google
+Workspace mailbox, authenticated with an **OAuth 2.0 client + refresh token**
+that the mailbox owner consented once (scope `gmail.send`) — the reliable
+transport from the edge runtime. A refresh token is used **instead of a
+service-account key** so this works under orgs that disable service-account key
+creation (`iam.managed.disableServiceAccountKeyCreation`). One project serves
+both environments, so a paid **sandbox** (staging) test order emails too — test
+with an address you control.
+
+**Google setup (once):**
+
+1. In a Google Cloud project, **enable the Gmail API**.
+2. **APIs & Services → Credentials → Create credentials → OAuth client ID**
+   (configure the consent screen as **Internal** if prompted, so the refresh
+   token doesn't expire on the 7-day "testing" clock). Note the **client ID**
+   and **client secret**.
+3. **Consent once** as the sending mailbox (e.g. `orders@wherethereslight.co.za`)
+   for the single scope `https://www.googleapis.com/auth/gmail.send`, requesting
+   **offline access**, and capture the **refresh token** it returns. (The
+   [OAuth 2.0 Playground](https://developers.google.com/oauthplayground/) with
+   "Use your own OAuth credentials" is the quickest way; make sure the
+   client's authorized redirect URI includes the Playground.)
+
+**Function secrets:**
+
+- `GMAIL_SENDER` — the mailbox that consented / sends (e.g. `orders@wherethereslight.co.za`).
+- `GMAIL_CLIENT_ID` — the OAuth 2.0 client ID.
+- `GMAIL_CLIENT_SECRET` — the OAuth 2.0 client secret.
+- `GMAIL_REFRESH_TOKEN` — the refresh token from the one-time consent.
+- `ORDER_EMAIL_BCC` — optional; BCC a copy of every order email here.
 
 ### Setup
 
@@ -95,6 +141,10 @@ the edge functions (service role). Buyers check out as guests (no login).
      are not configured" (staging keeps working on the sandbox defaults).
    - `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` are provided automatically.
    - Return/cancel URLs are derived from the request origin — no `SITE_URL` needed.
+   - **Order email** (optional) — `GMAIL_SENDER`, `GMAIL_CLIENT_ID`,
+     `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` (and optional `ORDER_EMAIL_BCC`)
+     to email the buyer a notice-of-order invoice on payment. See *Notice-of-order
+     email* above; unset means no email is sent.
 3. **Deploy the functions with JWT verification off** (or toggle "Verify JWT"
    off for both in the dashboard):
 
