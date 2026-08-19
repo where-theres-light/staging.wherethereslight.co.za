@@ -169,7 +169,7 @@ const Cart = {
     document.querySelectorAll('[data-cart-count]').forEach(el=>{ el.textContent=this.count(); });
     const body=document.getElementById('cartBody'); if(!body) return;
     const items=this.read();
-    if(!items.length){ body.innerHTML='<div class="cart-empty">Your cart is quiet.<br>Find a town worth keeping.</div>'; }
+    if(!items.length){ body.innerHTML='<div class="cart-empty">Your cart is quiet.<br>Find a piece worth keeping.</div>'; }
     else{
       const disc=this.giftDiscount();
       body.innerHTML=items.map((it,i)=>{

@@ -165,7 +165,7 @@ function invoiceHtml(order: any): string {
   }).join('');
 
   const addr = pickup
-    ? '<p style="margin:0">Collection — we\'ll be in touch to arrange a time.</p>'
+    ? '<p style="margin:0">Collection — we\'ll be in touch to arrange collection.</p>'
     : [ship.line1, ship.line2, ship.city, ship.province, ship.postcode, ship.country]
         .filter(Boolean).map(escapeHtml).join('<br>');
 
@@ -212,7 +212,7 @@ function invoiceHtml(order: any): string {
     ${addr}
   </td></tr>
   <tr><td style="padding:16px 32px 28px;border-top:1px solid #eee;color:#888;font-size:12px">
-    <p style="margin:0">We'll email you again when your order is on its way. Questions? Just reply to this email.</p>
+    <p style="margin:0">${pickup ? '' : 'We\'ll email you again when your order is on its way. '}Questions? Just reply to this email.</p>
     <p style="margin:8px 0 0">Where There's Light &middot; wherethereslight.co.za</p>
   </td></tr>
 </table>
