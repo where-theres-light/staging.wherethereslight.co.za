@@ -21,6 +21,10 @@ import { crypto } from 'https://deno.land/std@0.224.0/crypto/mod.ts';
 // fails the ITN (the order is already marked paid). See the "Order email"
 // section below; it no-ops unless the GMAIL_* secrets are configured.
 //
+// Gmail auth is a user-consented OAuth refresh token (not a service-account
+// key), so it works under orgs that disable service-account key creation
+// (org policy iam.managed.disableServiceAccountKeyCreation).
+//
 // Deploy with JWT verification OFF (PayFast sends no Supabase key):
 //   supabase functions deploy payfast-notify --no-verify-jwt
 
@@ -48,19 +52,23 @@ async function md5(s: string): Promise<string> {
 // Order email — the notice-of-order (HTML invoice), sent via the Gmail API.
 // ===========================================================================
 //
-// Sends as a Google Workspace mailbox using a service account with
-// domain-wide delegation (scope https://www.googleapis.com/auth/gmail.send).
-// It is pure HTTPS (no SMTP), which is the reliable transport in the edge
-// runtime: sign a short JWT with the service-account key, exchange it for an
-// access token, then POST an RFC-822 message to gmail.users.messages.send.
+// Sends as a Google Workspace mailbox using an OAuth 2.0 client + refresh
+// token that the mailbox owner consented once (scope
+// https://www.googleapis.com/auth/gmail.send). It is pure HTTPS (no SMTP),
+// which is the reliable transport in the edge runtime: exchange the refresh
+// token for a short-lived access token, then POST an RFC-822 message to
+// gmail.users.messages.send.
 //
-// Configured entirely through function secrets; if GMAIL_SENDER or the
-// service-account credentials are absent, sending is a silent no-op (so the
-// checkout keeps working before email is wired up).
-//   GMAIL_SENDER          the mailbox to send as, e.g. orders@wherethereslight.co.za
-//   GMAIL_SA_EMAIL        the service account's email address
-//   GMAIL_SA_PRIVATE_KEY  the service account's PEM private key (\n may be escaped)
-//   ORDER_EMAIL_BCC       optional — BCC a copy of every order email here
+// Using a refresh token (rather than a service-account key) means this works
+// under orgs that disable service-account key creation.
+//
+// Configured entirely through function secrets; if any is absent, sending is a
+// silent no-op (so the checkout keeps working before email is wired up).
+//   GMAIL_SENDER         the mailbox that consented / sends, e.g. orders@wherethereslight.co.za
+//   GMAIL_CLIENT_ID      the OAuth 2.0 client ID
+//   GMAIL_CLIENT_SECRET  the OAuth 2.0 client secret
+//   GMAIL_REFRESH_TOKEN  the refresh token from the one-time consent (gmail.send scope)
+//   ORDER_EMAIL_BCC      optional — BCC a copy of every order email here
 
 const CURRENCY = (n: number) => {
   const v = Math.round(Number(n) * 100) / 100;
@@ -83,57 +91,23 @@ function base64Wrapped(bytes: Uint8Array): string {
   return (btoa(bin).match(/.{1,76}/g) ?? []).join('\r\n');
 }
 
-// base64url of bytes / string (JWT segments and the whole raw message).
+// base64url of bytes (the whole raw RFC-822 message).
 function base64url(bytes: Uint8Array): string {
   let bin = '';
   for (const b of bytes) bin += String.fromCharCode(b);
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-const base64urlStr = (s: string) => base64url(new TextEncoder().encode(s));
 
-// Import the service-account PEM (PKCS#8) as an RS256 signing key.
-async function importServiceKey(pem: string): Promise<CryptoKey> {
-  const body = pem
-    .replace(/\\n/g, '\n')
-    .replace(/-----BEGIN [^-]+-----/, '')
-    .replace(/-----END [^-]+-----/, '')
-    .replace(/\s+/g, '');
-  const der = Uint8Array.from(atob(body), c => c.charCodeAt(0));
-  // globalThis.crypto (native WebCrypto), not the std `crypto` imported above
-  // for MD5 — the same distinction create-order makes for its SHA-256 hashing.
-  return globalThis.crypto.subtle.importKey(
-    'pkcs8', der,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false, ['sign'],
-  );
-}
-
-// Mint a Gmail send access token for the impersonated sender via the JWT-bearer
-// grant (service account + domain-wide delegation).
-async function gmailAccessToken(saEmail: string, saKey: string, sender: string): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: 'RS256', typ: 'JWT' };
-  const claim = {
-    iss: saEmail,
-    sub: sender,                              // impersonate the sending mailbox
-    scope: 'https://www.googleapis.com/auth/gmail.send',
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now,
-    exp: now + 3600,
-  };
-  const unsigned = `${base64urlStr(JSON.stringify(header))}.${base64urlStr(JSON.stringify(claim))}`;
-  const key = await importServiceKey(saKey);
-  const sig = await globalThis.crypto.subtle.sign(
-    { name: 'RSASSA-PKCS1-v1_5' }, key, new TextEncoder().encode(unsigned),
-  );
-  const jwt = `${unsigned}.${base64url(new Uint8Array(sig))}`;
-
+// Exchange the stored refresh token for a short-lived Gmail send access token.
+async function gmailAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<string> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt,
+      grant_type: 'refresh_token',
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
     }),
   });
   if (!res.ok) throw new Error(`token ${res.status}: ${await res.text()}`);
@@ -144,10 +118,10 @@ async function gmailAccessToken(saEmail: string, saKey: string, sender: string):
 
 // Send one HTML email as `sender` through the Gmail API.
 async function sendGmail(opts: {
-  saEmail: string; saKey: string; sender: string;
+  clientId: string; clientSecret: string; refreshToken: string; sender: string;
   to: string; bcc?: string; subject: string; html: string;
 }): Promise<void> {
-  const token = await gmailAccessToken(opts.saEmail, opts.saKey, opts.sender);
+  const token = await gmailAccessToken(opts.clientId, opts.clientSecret, opts.refreshToken);
   const headers = [
     `From: Where There's Light <${opts.sender}>`,
     `To: ${opts.to}`,
@@ -252,15 +226,16 @@ function invoiceHtml(order: any): string {
 // regardless. No-ops unless the Gmail secrets are configured.
 async function sendOrderEmail(order: any): Promise<void> {
   const sender = (Deno.env.get('GMAIL_SENDER') ?? '').trim();
-  const saEmail = (Deno.env.get('GMAIL_SA_EMAIL') ?? '').trim();
-  const saKey = Deno.env.get('GMAIL_SA_PRIVATE_KEY') ?? '';
+  const clientId = (Deno.env.get('GMAIL_CLIENT_ID') ?? '').trim();
+  const clientSecret = (Deno.env.get('GMAIL_CLIENT_SECRET') ?? '').trim();
+  const refreshToken = (Deno.env.get('GMAIL_REFRESH_TOKEN') ?? '').trim();
   const bcc = (Deno.env.get('ORDER_EMAIL_BCC') ?? '').trim() || undefined;
-  if (!sender || !saEmail || !saKey) return;   // not configured — skip silently
+  if (!sender || !clientId || !clientSecret || !refreshToken) return;   // not configured — skip silently
 
   try {
     const ref = String(order.order_token).slice(0, 8).toUpperCase();
     await sendGmail({
-      saEmail, saKey, sender, bcc,
+      clientId, clientSecret, refreshToken, sender, bcc,
       to: String(order.buyer_email).trim(),
       subject: `Your Where There's Light order - #${ref}`,
       html: invoiceHtml(order),

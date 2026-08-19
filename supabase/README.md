@@ -91,27 +91,34 @@ VAT-registered, so it is not a tax invoice). The send:
   works before email is wired up.
 
 Mail is sent through the **Gmail API** (pure HTTPS, no SMTP) as a Google
-Workspace mailbox, using a **service account with domain-wide delegation** —
-the reliable transport from the edge runtime. One project serves both
-environments, so a paid **sandbox** (staging) test order emails too — test with
-an address you control.
+Workspace mailbox, authenticated with an **OAuth 2.0 client + refresh token**
+that the mailbox owner consented once (scope `gmail.send`) — the reliable
+transport from the edge runtime. A refresh token is used **instead of a
+service-account key** so this works under orgs that disable service-account key
+creation (`iam.managed.disableServiceAccountKeyCreation`). One project serves
+both environments, so a paid **sandbox** (staging) test order emails too — test
+with an address you control.
 
 **Google setup (once):**
 
-1. In a Google Cloud project, **enable the Gmail API** and create a **service
-   account** with a **JSON key**.
-2. In **Workspace Admin → Security → API controls → Domain-wide delegation**,
-   authorize that service account's client ID for the single scope
-   `https://www.googleapis.com/auth/gmail.send`.
-3. Choose a real mailbox to send as, e.g. `orders@wherethereslight.co.za`
-   (the service account impersonates it).
+1. In a Google Cloud project, **enable the Gmail API**.
+2. **APIs & Services → Credentials → Create credentials → OAuth client ID**
+   (configure the consent screen as **Internal** if prompted, so the refresh
+   token doesn't expire on the 7-day "testing" clock). Note the **client ID**
+   and **client secret**.
+3. **Consent once** as the sending mailbox (e.g. `orders@wherethereslight.co.za`)
+   for the single scope `https://www.googleapis.com/auth/gmail.send`, requesting
+   **offline access**, and capture the **refresh token** it returns. (The
+   [OAuth 2.0 Playground](https://developers.google.com/oauthplayground/) with
+   "Use your own OAuth credentials" is the quickest way; make sure the
+   client's authorized redirect URI includes the Playground.)
 
 **Function secrets:**
 
-- `GMAIL_SENDER` — the mailbox to send as (e.g. `orders@wherethereslight.co.za`).
-- `GMAIL_SA_EMAIL` — the service account's email address.
-- `GMAIL_SA_PRIVATE_KEY` — the service account's PEM private key (`\n` escaped is
-  fine; the function un-escapes it).
+- `GMAIL_SENDER` — the mailbox that consented / sends (e.g. `orders@wherethereslight.co.za`).
+- `GMAIL_CLIENT_ID` — the OAuth 2.0 client ID.
+- `GMAIL_CLIENT_SECRET` — the OAuth 2.0 client secret.
+- `GMAIL_REFRESH_TOKEN` — the refresh token from the one-time consent.
 - `ORDER_EMAIL_BCC` — optional; BCC a copy of every order email here.
 
 ### Setup
@@ -134,10 +141,10 @@ an address you control.
      are not configured" (staging keeps working on the sandbox defaults).
    - `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` are provided automatically.
    - Return/cancel URLs are derived from the request origin — no `SITE_URL` needed.
-   - **Order email** (optional) — `GMAIL_SENDER`, `GMAIL_SA_EMAIL`,
-     `GMAIL_SA_PRIVATE_KEY` (and optional `ORDER_EMAIL_BCC`) to email the buyer a
-     notice-of-order invoice on payment. See *Notice-of-order email* above; unset
-     means no email is sent.
+   - **Order email** (optional) — `GMAIL_SENDER`, `GMAIL_CLIENT_ID`,
+     `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` (and optional `ORDER_EMAIL_BCC`)
+     to email the buyer a notice-of-order invoice on payment. See *Notice-of-order
+     email* above; unset means no email is sent.
 3. **Deploy the functions with JWT verification off** (or toggle "Verify JWT"
    off for both in the dashboard):
 
