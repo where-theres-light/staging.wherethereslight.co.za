@@ -1,7 +1,8 @@
 // import-statement parses a Capitec statement PDF and imports its transactions.
 //
-//	go run ./scripts/import-statement statement.pdf --dry-run
-//	go run ./scripts/import-statement statement.pdf
+//	cd scripts/import-statement
+//	go run . --dry-run statement.pdf
+//	go run . statement.pdf
 //
 // Reads the PDF locally, extracts the Transaction History table, and POSTs the
 // parsed rows to the import-transactions edge function, which writes them as
