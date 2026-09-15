@@ -4,10 +4,12 @@ The production catalogue, checkout/orders, mailing list, and page-visit metrics
 live in Supabase. The offline `dev` build never touches it — it seeds the same
 catalogue data from `ui/demo.js`.
 
-The schema is **two migrations**: `db/001_catalog.sql` for the public,
-read-only product catalogue, and `db/002_sessions.sql` for everything else —
-`sessions` (the hub) plus every table that references it (`orders`,
-`subscriptions`, `page_visits`) and the shared `rate_limits`.
+The schema is **three migrations**: `db/001_catalog.sql` for the public,
+read-only product catalogue, `db/002_sessions.sql` for everything the site
+writes — `sessions` (the hub) plus every table that references it (`orders`,
+`subscriptions`, `page_visits`) and the shared `rate_limits` — and
+`db/003_transactions.sql` for the bank ledger, which the site never touches at
+all (see *Bank transactions* below).
 
 ## Sessions (the hub)
 
@@ -159,6 +161,111 @@ with an address you control.
 
 The browser calls these with the publishable key; `create-order` recomputes the
 price server-side, so a tampered cart can never change what is charged.
+
+## Bank transactions
+
+The **`transactions`** table is the running bank ledger — what actually moved
+through the Capitec business account, which is how much cash is really available
+and how much of it is owed as tax. It is imported from the statement PDFs, not
+derived from `orders`: an order is what a buyer *owes*, a transaction is money
+that *arrived*, and the two do not line up (fees, transfers, refunds, cash).
+Nothing in the shipped site reads or writes this table.
+
+- **`../db/003_transactions.sql`** — the schema. RLS on with no policies, like
+  everything in `002`, so only the service role touches it.
+- **`functions/import-transactions/`** — the only write path. Validates every
+  row and upserts with `ON CONFLICT DO NOTHING`, returning how many rows were
+  actually new.
+- **`../scripts/import-statement.ts`** — a Deno CLI that parses a statement PDF
+  locally and POSTs the parsed rows to that function.
+
+### Why the import is idempotent
+
+Statements overlap — a September statement repeats the last days of August — and
+the same PDF gets re-downloaded. Every import is therefore an upsert against the
+natural key `(transaction_date, description, amount, raw_reference)`, and the
+importer reports inserted-vs-skipped so a re-run is visibly a no-op.
+
+`raw_reference` is the statement line verbatim, **including the running
+balance**, and that is what makes the key work: two genuine purchases on the same
+day, for the same amount, at the same shop are identical in every other column,
+and the balance is the only thing that separates them. `source_statement` is
+deliberately *not* in the key, so the same transaction arriving in two different
+statements still de-duplicates.
+
+### What the parser does
+
+`pdf.js` (via `npm:unpdf`) gives the Transaction History table back one line per
+row; long descriptions wrap, so a row is accumulated from its date until the
+trailing numbers appear. Money In and Money Out share a column position and
+already carry their sign, so a row ends in either two numbers (amount, balance)
+or three (amount, fee, balance).
+
+Two things are worth knowing about the output:
+
+- **Fees become their own rows.** The schema has a single `amount`, and the
+  statement's `Fee*` column is a real separate debit, so a row carrying a fee
+  yields a second transaction (`<description> (fee)`, `transaction_type` `fee`).
+  That is what keeps the amounts summing back to the closing balance.
+- **The balance chain is checked.** Every row's amount plus its fee must be
+  exactly the step from the previous printed balance to this one. A row that
+  does not reconcile is reported as a warning rather than silently imported
+  wrong — which is also the proof that the trailing numbers were read as the
+  right columns.
+
+**Pending card transactions are skipped**: they have not been posted to the
+balance yet, and they arrive again as real rows on the next statement.
+
+### Using it
+
+Statements go in `data/statements/`, which is **git-ignored** — a bank statement
+must never be committed. The password (Capitec uses the last four digits of the
+registered mobile number) is read from an environment variable, never an
+argument, so it stays out of shell history; leave it unset for an unencrypted
+statement.
+
+```bash
+# Parse and check, writing nothing. Do this first.
+deno run --allow-read --allow-net --allow-env \
+  scripts/import-statement.ts data/statements/account_statement.pdf --dry-run
+
+# Import.
+export IMPORT_TOKEN=…            # the function secret, below
+export STATEMENT_PASSWORD=…      # only if the PDF is encrypted
+deno run --allow-read --allow-net --allow-env \
+  scripts/import-statement.ts data/statements/account_statement.pdf
+```
+
+It prints the statement's totals (money in, money out, net), which should match
+the summary boxes printed on page 1 — the quickest way to confirm a clean parse
+— and then `inserted` / `skipped`.
+
+`--source NAME` overrides the `source_statement` label (it defaults to the
+filename); `--password-env VAR` reads the password from a different variable.
+Running the script needs [Deno](https://deno.com) on the machine doing the
+import; it pulls `unpdf` from npm on first run and needs no `package.json`.
+
+### Setup
+
+1. **Run the migration** — paste `db/003_transactions.sql` into the SQL editor
+   (or `supabase db push`). Idempotent.
+2. **Set the import secret.** This function is not called by the browser, so it
+   has no origin allowlist; the shared secret is its only authentication, and
+   while it is unset the endpoint refuses everything (`503`) — it fails closed,
+   so deploying before setting the secret cannot open a write path.
+
+   ```bash
+   supabase secrets set IMPORT_TOKEN="$(openssl rand -hex 32)"
+   ```
+
+3. **Deploy with JWT verification off** (the importer holds no Supabase key):
+
+   ```bash
+   supabase functions deploy import-transactions --no-verify-jwt
+   ```
+
+Nothing here is given a service-role key: the machine running the import holds
+only `IMPORT_TOKEN`, which can do exactly one thing — append statement rows.
 
 ## Mailing-list subscriptions
 

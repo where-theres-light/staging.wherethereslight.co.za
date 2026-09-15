@@ -126,6 +126,21 @@ Everything under `ui/` is **source**; the build output goes to `ui/dist/`.
   **generated and git-ignored** (`dist` is in `.gitignore`) — never edit files
   here by hand and never commit it. It is what the Pages workflow deploys.
 
+## `scripts/` — operational tooling
+
+Standalone **Deno** CLIs that are not part of the site build and never ship in
+`dist`. They use `npm:` / URL imports the same way the edge functions do, so
+there is no `package.json` and no lockfile to keep in step.
+
+- **`scripts/import-statement.ts`** — parses a Capitec bank-statement PDF and
+  imports its transactions into the `transactions` table, through the
+  `import-transactions` edge function (the table is service-role only, so the
+  script never holds a Supabase key). See *Bank transactions* in
+  `supabase/README.md`.
+
+Statements live in `data/statements/`, which is git-ignored — bank statements
+and the PDF password never go in the repo.
+
 ## GitHub Pages — staging and production repos
 
 Deployment mirrors the `anroleroux` two-repo pattern. There is a **staging

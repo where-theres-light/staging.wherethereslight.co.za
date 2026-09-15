@@ -1,1 +1,5 @@
 ui/dist/
+
+# Downloaded bank statements. Never commit these — they are the account
+# holder's financial data. scripts/import-statement.ts reads them from here.
+/data/statements/

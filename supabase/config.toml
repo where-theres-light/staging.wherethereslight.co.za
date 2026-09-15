@@ -1,9 +1,12 @@
 # Edge-function config (read by the Supabase CLI).
 #
-# All four functions run with JWT verification OFF:
+# All five functions run with JWT verification OFF:
 #   - payfast-notify is called by PayFast, which sends no Supabase key.
 #   - create-order, subscribe and track are called from the browser with only the
 #     publishable key.
+#   - import-transactions is called by scripts/import-statement.ts, which has no
+#     Supabase key at all; it authenticates with the IMPORT_TOKEN secret instead
+#     and refuses every request while that secret is unset.
 # Server-side validation (and, for subscribe/track, rate limiting) lives inside
 # the functions themselves.
 #
@@ -20,4 +23,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.track]
+verify_jwt = false
+
+[functions.import-transactions]
 verify_jwt = false
