@@ -248,7 +248,7 @@ statement.
 cd scripts/import-statement
 
 # Parse and check, writing nothing. Do this first.
-go run . ../../data/statements/account_statement.pdf --dry-run
+go run . --dry-run ../../data/statements/account_statement.pdf
 
 # Import.
 export IMPORT_TOKEN=…            # the function secret, below
