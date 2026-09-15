@@ -128,15 +128,20 @@ Everything under `ui/` is **source**; the build output goes to `ui/dist/`.
 
 ## `scripts/` — operational tooling
 
-Standalone **Deno** CLIs that are not part of the site build and never ship in
-`dist`. They use `npm:` / URL imports the same way the edge functions do, so
-there is no `package.json` and no lockfile to keep in step.
+Standalone **Go** programs that are not part of the site build and never ship in
+`dist`. Each is its own module, so the site's build stays dependency-free and
+`go test ./...` inside one covers it.
 
-- **`scripts/import-statement.ts`** — parses a Capitec bank-statement PDF and
+- **`scripts/import-statement/`** — parses a Capitec bank-statement PDF and
   imports its transactions into the `transactions` table, through the
   `import-transactions` edge function (the table is service-role only, so the
-  script never holds a Supabase key). See *Bank transactions* in
+  program never holds a Supabase key). See *Bank transactions* in
   `supabase/README.md`.
+
+Go rather than Deno because the statement table is read by **column position**
+rather than by splitting text, which needs the x coordinate of every fragment —
+and because a compiled binary needs no runtime installed on whatever machine
+does the import.
 
 Statements live in `data/statements/`, which is git-ignored — bank statements
 and the PDF password never go in the repo.

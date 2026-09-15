@@ -12,7 +12,7 @@
 -- the only write path; the owner reads it via the dashboard. Nothing in the
 -- shipped site touches this table.
 --
--- Rows are appended by scripts/import-statement.ts, which parses a statement PDF
+-- Rows are appended by scripts/import-statement, which parses a statement PDF
 -- locally and POSTs the parsed rows to that function. Statements overlap (a
 -- September statement repeats late-August rows), so every import is an
 -- ON CONFLICT DO NOTHING upsert against the natural key below — re-importing the

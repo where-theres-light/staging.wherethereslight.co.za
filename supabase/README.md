@@ -176,7 +176,7 @@ Nothing in the shipped site reads or writes this table.
 - **`functions/import-transactions/`** — the only write path. Validates every
   row and upserts with `ON CONFLICT DO NOTHING`, returning how many rows were
   actually new.
-- **`../scripts/import-statement.ts`** — a Deno CLI that parses a statement PDF
+- **`../scripts/import-statement/`** — a Go program that parses a statement PDF
   locally and POSTs the parsed rows to that function.
 
 ### Why the import is idempotent
@@ -195,26 +195,46 @@ statements still de-duplicates.
 
 ### What the parser does
 
-`pdf.js` (via `npm:unpdf`) gives the Transaction History table back one line per
-row; long descriptions wrap, so a row is accumulated from its date until the
-trailing numbers appear. Money In and Money Out share a column position and
-already carry their sign, so a row ends in either two numbers (amount, balance)
-or three (amount, fee, balance).
+The table is read by **column position**, not by splitting text. The PDF gives
+every fragment an x coordinate, and the table's header row
 
-Two things are worth knowing about the output:
+```
+Date  Description  Category  Money In  Money Out  Fee*  Balance
+```
+
+supplies an anchor for each column, so each fragment is assigned to whichever
+column it sits under. The anchors are read off the header on every page rather
+than hard-coded, so a layout shift moves them with it.
+
+Positions matter because the columns cannot be told apart from the text alone:
+Money In and Money Out are both plain signed amounts, and a row may carry any
+combination of amount, fee and balance. It is also how a long description that
+wraps onto its own line is rejoined rather than mistaken for a new row — the
+wrapped fragment carries the description column's x, so it appends to the
+description (and a wrapped *category* appends to the category).
+
+Three things are worth knowing about the output:
 
 - **Fees become their own rows.** The schema has a single `amount`, and the
-  statement's `Fee*` column is a real separate debit, so a row carrying a fee
+  statement's `Fee*` column is a real separate debit, so a row carrying both
   yields a second transaction (`<description> (fee)`, `transaction_type` `fee`).
-  That is what keeps the amounts summing back to the closing balance.
+  That is what keeps the amounts summing back to the closing balance. A row that
+  is *only* a fee — a card-issue fee, say, which posts into `Fee*` with no Money
+  In or Money Out — stays one transaction, typed `fee`.
+- **The rightmost number is always the balance.** Amounts are right-aligned, so a
+  large enough balance starts under the `Fee*` anchor; taking the rightmost
+  removes that ambiguity regardless of width.
 - **The balance chain is checked.** Every row's amount plus its fee must be
   exactly the step from the previous printed balance to this one. A row that
   does not reconcile is reported as a warning rather than silently imported
-  wrong — which is also the proof that the trailing numbers were read as the
-  right columns.
+  wrong — which is also the proof that the columns were assigned correctly, so a
+  layout change surfaces as a warning instead of a wrong number.
 
 **Pending card transactions are skipped**: they have not been posted to the
 balance yet, and they arrive again as real rows on the next statement.
+
+`go test ./scripts/import-statement/` covers the column logic with synthetic
+rows — no statement fixture, so the tests carry no real data.
 
 ### Using it
 
@@ -225,16 +245,19 @@ argument, so it stays out of shell history; leave it unset for an unencrypted
 statement.
 
 ```bash
+cd scripts/import-statement
+
 # Parse and check, writing nothing. Do this first.
-deno run --allow-read --allow-net --allow-env \
-  scripts/import-statement.ts data/statements/account_statement.pdf --dry-run
+go run . ../../data/statements/account_statement.pdf --dry-run
 
 # Import.
 export IMPORT_TOKEN=…            # the function secret, below
 export STATEMENT_PASSWORD=…      # only if the PDF is encrypted
-deno run --allow-read --allow-net --allow-env \
-  scripts/import-statement.ts data/statements/account_statement.pdf
+go run . ../../data/statements/account_statement.pdf
 ```
+
+`go build -o import-statement .` gives a standalone binary instead, which needs
+no Go on the machine that runs it.
 
 It prints the statement's totals (money in, money out, net), which should match
 the summary boxes printed on page 1 — the quickest way to confirm a clean parse
@@ -242,8 +265,8 @@ the summary boxes printed on page 1 — the quickest way to confirm a clean pars
 
 `--source NAME` overrides the `source_statement` label (it defaults to the
 filename); `--password-env VAR` reads the password from a different variable.
-Running the script needs [Deno](https://deno.com) on the machine doing the
-import; it pulls `unpdf` from npm on first run and needs no `package.json`.
+The only dependency is `github.com/ledongthuc/pdf` (BSD, no transitive deps),
+which reads both AES- and RC4-encrypted statements.
 
 ### Setup
 

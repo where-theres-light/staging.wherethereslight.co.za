@@ -4,7 +4,7 @@
 #   - payfast-notify is called by PayFast, which sends no Supabase key.
 #   - create-order, subscribe and track are called from the browser with only the
 #     publishable key.
-#   - import-transactions is called by scripts/import-statement.ts, which has no
+#   - import-transactions is called by scripts/import-statement, which has no
 #     Supabase key at all; it authenticates with the IMPORT_TOKEN secret instead
 #     and refuses every request while that secret is unset.
 # Server-side validation (and, for subscribe/track, rate limiting) lives inside

@@ -8,7 +8,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // the statement importer never needs a service-role key on a laptop.
 //
 // Unlike the other functions this one is NOT called by the browser. It is
-// called by scripts/import-statement.ts, which parses the PDF locally and POSTs
+// called by scripts/import-statement, which parses the PDF locally and POSTs
 // only the extracted rows. There is therefore no origin allowlist and no CORS:
 // the caller must present the shared IMPORT_TOKEN secret, and without that
 // secret set the endpoint is closed entirely.
