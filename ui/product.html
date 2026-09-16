@@ -1,9 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-ZA">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!--seo-->
 <title>Where There's Light — Townscape</title>
+<meta name="description" content="A hand-drawn townscape by Laurita le Roux, available as a one-of-a-kind original artwork or an archival fine-art print.">
+<meta name="robots" content="noindex,follow">
+<meta name="author" content="Laurita le Roux">
+<meta name="theme-color" content="#2D3644">
+<meta property="og:type" content="product">
+<meta property="og:site_name" content="Where There's Light">
+<meta property="og:locale" content="en_ZA">
+<meta property="og:title" content="Where There's Light — Townscape">
+<meta property="og:description" content="A hand-drawn townscape by Laurita le Roux, available as a one-of-a-kind original artwork or an archival fine-art print.">
+<meta property="og:url" content="https://wherethereslight.co.za/product.html">
+<meta property="og:image" content="https://wherethereslight.co.za/assets/swellendam-small.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!--/seo-->
 <link rel="stylesheet" href="styles.css">
 <style>
   .crumbs{padding:26px 0 0;font-size:.82rem;letter-spacing:.04em;color:var(--ink-soft);}
@@ -129,6 +145,8 @@
     </div>
   </section>
 
+  <!--seo-copy-->
+
   <section class="more">
     <div class="sec-head"><h2>More from the collection</h2></div>
     <div class="strip" id="moreStrip"></div>
@@ -181,10 +199,12 @@
 <script>
 withCatalog(()=>{
   const params=new URLSearchParams(location.search);
-  const piece=byId(params.get('piece')) || CATALOG[0];
+  const piece=byId(window.__PIECE_ID || params.get('piece')) || CATALOG[0];
   let selected=null;
 
-  document.title=`${piece.title} — Where There's Light`;
+  /* Generated pages carry their own static <title>; only the query-string
+     fallback has to name the piece itself. */
+  if(!window.__PIECE_ID) document.title=`${piece.title} — Where There's Light`;
   document.getElementById('crumbHere').textContent=piece.title;
   const crumbCollection=document.getElementById('crumbCollection');
   if(piece.cat==='amelias'){ crumbCollection.href='amelias-house.html'; crumbCollection.textContent="Amelia's House"; }
@@ -236,10 +256,26 @@ withCatalog(()=>{
   }
   document.getElementById('addBtn').onclick=addToCart;
 
+  /* Structured data: the generated pages ship the piece's identity statically;
+     pricing is authoritative in the catalogue, so it is patched in here. */
+  const ldEl=document.getElementById('pieceLd');
+  if(ldEl){
+    try{
+      const ld=JSON.parse(ldEl.textContent);
+      ld.offers=opts.filter(o=>o.price!=null).map(o=>({
+        '@type':'Offer', name:o.name, price:String(o.price), priceCurrency:'ZAR',
+        availability:o.sold?'https://schema.org/SoldOut':'https://schema.org/InStock',
+        url:location.origin+location.pathname,
+        seller:{'@type':'Organization',name:"Where There's Light"}
+      }));
+      ldEl.textContent=JSON.stringify(ld);
+    }catch(e){}
+  }
+
   // more from collection (exclude current)
   document.getElementById('moreStrip').innerHTML=CATALOG.filter(p=>p.id!==piece.id).slice(0,4).map(p=>`
-    <figure><a href="product.html?piece=${p.id}">
-      <div class="mat"><img src="${p.img}" alt="${p.title}" loading="lazy"></div>
+    <figure><a href="${p.id}-art.html">
+      <div class="mat"><img src="${p.img}" alt="${p.title} — hand-drawn art by Laurita le Roux" loading="lazy"></div>
       <div class="nm">${p.title}</div><div class="pl2">${p.place}</div>
     </a></figure>`).join('');
 });

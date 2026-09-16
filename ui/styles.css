@@ -257,3 +257,19 @@ p{margin:0 0 1em;}
 .tag-card .add:hover{background:var(--green);color:var(--paper);}
 @media(max-width:900px){.tag-grid{grid-template-columns:repeat(3,1fr);}}
 @media(max-width:560px){.tag-grid{grid-template-columns:1fr 1fr;}.tag-card{padding-left:6px;padding-right:6px;}}
+
+/* ---------- SEO / text sections ----------
+   Crawlable prose and the plain-text index of every piece. Both are real page
+   content — kept quiet visually, never hidden (hidden text is a ranking risk). */
+.seo-notes{border-top:1px solid var(--mist);margin-top:clamp(40px,6vw,72px);padding-top:clamp(26px,3vw,40px);}
+.seo-notes h2{font-size:clamp(1.5rem,2.4vw,2rem);margin-bottom:.5em;}
+.seo-notes p{max-width:68ch;color:var(--ink-soft);margin-bottom:1em;}
+.seo-notes a{color:var(--green);text-decoration:underline;text-underline-offset:2px;}
+
+.piece-index{border-top:1px solid var(--mist);margin-top:clamp(40px,6vw,72px);padding-top:clamp(26px,3vw,40px);}
+.piece-index h2{font-size:clamp(1.35rem,2vw,1.7rem);margin-bottom:.6em;}
+.piece-index ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px 28px;}
+.piece-index li{font-size:.92rem;line-height:1.4;}
+.piece-index a{color:var(--green);}
+.piece-index a:hover{color:var(--gold);}
+.piece-index .where{display:block;font-size:.78rem;color:var(--ink-soft);}

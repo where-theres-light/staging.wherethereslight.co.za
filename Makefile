@@ -35,6 +35,8 @@ stg: stage
 
 # ---- prd: production build (back-end calls kept) ----
 prd: stage
+	@ls $(DIST)/*-art.html >/dev/null 2>&1 || { \
+	  echo "error: per-piece SEO pages missing — the prd build needs node"; exit 1; }
 	@echo "wherethereslight.co.za" > $(DIST)/CNAME
 	@cp $(SRC)/robots.prd.txt $(DIST)/robots.txt
 	@{ \
@@ -45,6 +47,11 @@ prd: stage
 	    mod=$$(git log -1 --format=%cs -- $(SRC)/$$n.html 2>/dev/null); \
 	    [ -n "$$mod" ] || mod=$$(date -u +%Y-%m-%d); \
 	    echo "  <url><loc>$$loc</loc><lastmod>$$mod</lastmod></url>"; \
+	  done; \
+	  pmod=$$(git log -1 --format=%cs -- $(SRC)/demo.js 2>/dev/null); \
+	  [ -n "$$pmod" ] || pmod=$$(date -u +%Y-%m-%d); \
+	  for f in $(DIST)/*-art.html; do \
+	    echo "  <url><loc>$(BASE)/$$(basename $$f)</loc><lastmod>$$pmod</lastmod></url>"; \
 	  done; \
 	  echo '</urlset>'; \
 	} > $(DIST)/sitemap.xml
@@ -64,6 +71,23 @@ stage: clean
 	$(call compose,$(SRC)/cancel.html,$(MAP),$(DIST)/cancel.html)
 	@cp $(SRC)/styles.css $(SRC)/shared.js $(DIST)/
 	@cp -r $(SRC)/assets $(DIST)/assets
+	$(call seo-pages)
+
+# ---- seo-pages: one indexable page per catalogue piece ----
+# Stamps dist/product.html per piece into dist/<id>-art.html, so every town has
+# its own URL, <title>, description and structured data instead of sharing one
+# query-string page. Metadata is read from ui/demo.js at build time (the in-repo
+# mirror of the catalogue tables); prices are never baked in — the page fills
+# them, and its JSON-LD offers, from the live catalogue at run time.
+# node is not required for a plain local preview; prd checks for the output.
+define seo-pages
+	@if command -v node >/dev/null 2>&1; then \
+	  node make/seo-pages.js $(SRC)/demo.js $(DIST) $(BASE); \
+	else \
+	  echo "warning: node not found — skipping the per-piece SEO pages;"; \
+	  echo "         collection links to <id>-art.html will 404 in this build"; \
+	fi
+endef
 
 # ---- clean: remove the build output ----
 clean c:
