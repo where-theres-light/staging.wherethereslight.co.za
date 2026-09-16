@@ -1,43 +1,35 @@
 -- Monthly aggregations: the month-by-month summary derived from `transactions`.
 --
--- The ledger in db/003_transactions.sql answers "what moved". This answers "what
--- do I do with it": for each calendar month, how much came in, how much of that
--- is set aside or free to spend, and how much of the month's spending is a
--- claimable business expense.
+-- The ledger in db/003_transactions.sql answers "what moved", one row at a time.
+-- This answers it a month at a time:
 --
---   pre_deduction (PD)     10% of income — set aside before anything else
---   expandable_amount (EA) 40% of income
---   business_expenses      the month's claimed business spending
+--   income             everything that came in
+--   expenses           everything that went out
+--   business_expenses  the slice of those expenses claimed as deductible
 --
--- PD and EA are GENERATED columns, not stored facts: they are by definition
--- functions of `income`, so deriving them in the schema is what stops them ever
--- drifting from it. They deliberately do not add up to `income` — the remaining
--- 50% is simply unallocated here.
---
--- Consequence worth knowing: because the rates live in the column expressions,
--- changing one is an ALTER TABLE that recomputes *every* month, history
--- included. That is the right behaviour for a rule the owner sets, but it is not
--- a per-month rate — a month cannot be pinned to the rate in force at the time.
+-- `income` and `expenses` are the month's two raw sides, so `income - expenses`
+-- is its net movement — the same figure the statement's own balance chain steps
+-- through, which is what makes the summary checkable against the PDF.
+-- `business_expenses` is a subset of `expenses`, never a separate total: it can
+-- only ever be smaller, because a claim is made against a debit and can never
+-- exceed it.
 --
 -- Like 002 and 003 this is owner-only: RLS on with NO policies. Nothing in the
 -- shipped site reads or writes any of it. The summary is maintained entirely by
 -- triggers — there is no import path and nothing to run by hand after an import.
 --
--- The two inputs are deliberately asymmetric, because that is how the two
--- questions actually differ:
+-- Only one of the three asks a question of the owner. `income` and `expenses`
+-- are counted straight off the ledger and need nothing said about them for a
+-- month to be summarised. A deduction has to be SUBSTANTIATED, so nothing lands
+-- in `business_expenses` until it is claimed as one, with proof, in the table
+-- below. Nothing there is ever inferred from the statement.
 --
---   • Income is every credit. Money arriving in the business account counts, and
---     nothing has to be said about it for the month to be summarised.
---   • A deduction must be SUBSTANTIATED. Nothing is a business expense until it
---     is claimed as one, with proof, in `business_expenses` below. Nothing is
---     ever inferred from the statement.
---
--- Counting every credit is the deliberate simple case, not an oversight. It does
--- mean a transfer in from savings reads as income and so inflates both the
--- month's income and the 10% set aside against it; if that starts to matter, the
--- place to fix it is the income filter in refresh_monthly_aggregations below,
--- fed by whatever says a credit is not income — a rule per bank category, a
--- column on `transactions`, or both.
+-- Counting every credit as income is the deliberate simple case, not an
+-- oversight: a transfer in from savings reads as income. If that starts to
+-- matter, the place to fix it is the income filter in
+-- refresh_monthly_aggregations below, fed by whatever says a credit is not
+-- income — a rule per bank category, a column on `transactions`, or both. The
+-- same applies to `expenses` and an own-account transfer out.
 
 -- ===========================================================================
 -- Business expenses — a claim, with its proof, against one transaction.
@@ -139,15 +131,17 @@ CREATE TABLE IF NOT EXISTS monthly_aggregations (
   -- First day of the calendar month the row summarises.
   month             DATE          PRIMARY KEY,
 
-  -- Every credit in the month that resolves to income, summed. Positive.
+  -- Every credit in the month, summed. Positive.
   income            NUMERIC(12,2) NOT NULL DEFAULT 0,
 
-  pre_deduction     NUMERIC(12,2) GENERATED ALWAYS AS (round(income * 0.10, 2)) STORED,
-  expandable_amount NUMERIC(12,2) GENERATED ALWAYS AS (round(income * 0.40, 2)) STORED,
+  -- Every debit in the month — fees included — summed as a positive magnitude.
+  -- Stored positive because it is read as a total spent, not as a movement; the
+  -- signed amounts stay in `transactions`.
+  expenses          NUMERIC(12,2) NOT NULL DEFAULT 0,
 
-  -- The month's claims in `business_expenses`, summed as a positive total. A
-  -- month with no claims reads 0 — which here means "nothing claimed", not
-  -- "nothing deductible".
+  -- The month's claims in `business_expenses`, summed as a positive total, and
+  -- so always <= `expenses` above. A month with no claims reads 0 — which here
+  -- means "nothing claimed", not "nothing deductible".
   business_expenses NUMERIC(12,2) NOT NULL DEFAULT 0,
 
   -- Every transaction in the month, claimed or not. Provenance: it is how you
@@ -176,11 +170,13 @@ AS $$
 DECLARE
   v_written INTEGER;
 BEGIN
-  INSERT INTO monthly_aggregations (month, income, business_expenses, transaction_count, updated_at)
+  INSERT INTO monthly_aggregations (month, income, expenses, business_expenses, transaction_count, updated_at)
   SELECT
     date_trunc('month', t.transaction_date)::date,
     -- Every credit. See the header for why this is not qualified any further.
     COALESCE(SUM(t.amount) FILTER (WHERE t.amount > 0), 0),
+    -- Every debit, as a positive total.
+    COALESCE(SUM(-t.amount) FILTER (WHERE t.amount < 0), 0),
     -- Claimed rows only, and each for its apportioned amount when one is set.
     COALESCE(SUM(COALESCE(b.deductible_amount, -t.amount)) FILTER (
       WHERE b.transaction_id IS NOT NULL
@@ -196,6 +192,7 @@ BEGIN
   GROUP BY 1
   ON CONFLICT (month) DO UPDATE SET
     income            = EXCLUDED.income,
+    expenses          = EXCLUDED.expenses,
     business_expenses = EXCLUDED.business_expenses,
     transaction_count = EXCLUDED.transaction_count,
     updated_at        = NOW();

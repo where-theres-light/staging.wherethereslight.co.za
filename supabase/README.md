@@ -293,42 +293,37 @@ only `IMPORT_TOKEN`, which can do exactly one thing — append statement rows.
 
 ## Monthly aggregations
 
-`transactions` answers *what moved*. **`monthly_aggregations`** answers *what to
-do with it*: one row per calendar month.
+`transactions` answers *what moved*, one row at a time. **`monthly_aggregations`**
+answers it a month at a time — one row per calendar month:
 
 | column | meaning |
 | --- | --- |
 | `month` | first day of the month (the primary key) |
-| `income` | every credit in the month |
-| `pre_deduction` | **PD** — 10% of `income`, set aside before anything else |
-| `expandable_amount` | **EA** — 40% of `income` |
-| `business_expenses` | the month's claimed business spending |
+| `income` | everything that came in — every credit |
+| `expenses` | everything that went out — every debit, fees included |
+| `business_expenses` | the slice of those expenses claimed as deductible |
 | `transaction_count` | every transaction in the month, claimed or not — how you tell "no income" from "never imported" |
 
-PD and EA are **generated columns**, not stored numbers: they are by definition
-functions of `income`, so deriving them in the schema is what stops them drifting
-from it, and they cannot be written to. They deliberately do not add up to
-`income` — the remaining 50% is simply unallocated here.
+`income` and `expenses` are the month's two raw sides, so `income - expenses` is
+its net movement — the same figure the statement's own balance chain steps
+through, which is what makes the summary checkable against the PDF.
+`business_expenses` is a **subset** of `expenses`, never a separate total: it can
+only ever be smaller, because a claim is made against a debit and can never
+exceed it.
 
-Because the rates live in the column expressions, changing one is an
-`ALTER TABLE` that recomputes **every** month, history included. That is right
-for a rule the owner sets, but it does mean a month cannot be pinned to the rate
-that was in force at the time.
+Only one of the three asks anything of you.
 
-The two inputs are deliberately **asymmetric**: income is counted, a deduction
-must be *substantiated*.
+### Income and expenses — counted, not classified
 
-### Income — every credit
-
-`income` is every credit in the month, full stop. Nothing has to be said about a
-deposit for the month to be summarised.
+Both are taken straight off the ledger: `income` is every credit in the month,
+`expenses` every debit. Nothing has to be said about a transaction for its month
+to be summarised.
 
 That is the deliberate simple case rather than an oversight: it does mean a
-transfer in from savings reads as income, and so inflates both the month's income
-and the 10% set aside against it. If that starts to matter, the place to fix it
-is the income filter in `refresh_monthly_aggregations`, fed by whatever says a
-credit is not income — a rule per bank category, a column on `transactions`, or
-both.
+transfer in from savings reads as income, and a transfer out to savings as an
+expense. If that starts to matter, the place to fix it is the income (or
+expenses) filter in `refresh_monthly_aggregations`, fed by whatever says a credit
+is not income — a rule per bank category, a column on `transactions`, or both.
 
 ### Business expenses — a claim, with its proof
 
