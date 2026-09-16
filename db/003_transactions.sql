@@ -2,7 +2,7 @@
 --
 -- This is the cash-position table — what came in and what went out. What that
 -- means for tax is a separate question, answered in db/004_monthly_aggregations.sql,
--- where credits are resolved to income and expenses are claimed with their proof.
+-- where the month's income is split and expenses are claimed with their proof.
 -- It is *not* order or catalogue data: an order is what a buyer owes, a
 -- transaction is money that actually moved through the bank account, so the two
 -- are deliberately separate and unlinked.
@@ -42,8 +42,8 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 
 -- Reporting is "what moved, and when" — the monthly summary buckets by date, and
--- income is resolved per bank category — so both reads are date-ordered, one of
--- them per category.
+-- the bank's own categories are how spending is browsed — so both reads are
+-- date-ordered, one of them per category.
 CREATE INDEX IF NOT EXISTS transactions_date_idx     ON transactions (transaction_date);
 CREATE INDEX IF NOT EXISTS transactions_category_idx ON transactions (category, transaction_date);
 

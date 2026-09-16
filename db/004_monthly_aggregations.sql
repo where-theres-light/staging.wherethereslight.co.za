@@ -26,51 +26,18 @@
 -- The two inputs are deliberately asymmetric, because that is how the two
 -- questions actually differ:
 --
---   • Income is PRESUMED. Money arriving in a business account is income unless
---     it is your own money moving, so credits count by default and the few
---     exceptions are named (see `transaction_categories` below).
+--   • Income is every credit. Money arriving in the business account counts, and
+--     nothing has to be said about it for the month to be summarised.
 --   • A deduction must be SUBSTANTIATED. Nothing is a business expense until it
 --     is claimed as one, with proof, in `business_expenses` below. Nothing is
 --     ever inferred from the statement.
-
--- ===========================================================================
--- Income — which credits actually count as income.
--- ===========================================================================
 --
--- `transactions` records what the bank printed; it carries no notion of whether
--- a credit is really income. The statement cannot know: a transfer in from
--- savings is a credit, and counting it would inflate both the month's income and
--- the tax set aside against it.
---
--- Resolution is three levels, most specific first:
---
---   1. the transaction's own override column, when set;
---   2. the rule for its bank category, when one exists here;
---   3. the default — a credit IS income.
---
--- Default-in with named exceptions is what keeps this from being busywork: the
--- exceptions on a small business account are one or two categories ("Transfer"),
--- named once, rather than a decision on every deposit.
-CREATE TABLE IF NOT EXISTS transaction_categories (
-  -- The bank's own category, exactly as printed on the statement and stored in
-  -- transactions.category. Matched case-insensitively, so casing drift between
-  -- statements cannot silently orphan a rule.
-  category         TEXT PRIMARY KEY,
-  counts_as_income BOOLEAN NOT NULL DEFAULT TRUE,
-  note             TEXT,
-  created_at       TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS transaction_categories_lower_idx
-  ON transaction_categories (lower(category));
-
-ALTER TABLE transaction_categories ENABLE ROW LEVEL SECURITY;
--- No policies: owner-only, edited from the dashboard.
-
--- Per-transaction override. NULL — the normal case — means "no opinion, use the
--- category rule". It exists because a category is a blunt instrument, and the
--- category comes from the bank so it cannot be edited to carve one row out.
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counts_as_income BOOLEAN;
+-- Counting every credit is the deliberate simple case, not an oversight. It does
+-- mean a transfer in from savings reads as income and so inflates both the
+-- month's income and the 10% set aside against it; if that starts to matter, the
+-- place to fix it is the income filter in refresh_monthly_aggregations below,
+-- fed by whatever says a credit is not income — a rule per bank category, a
+-- column on `transactions`, or both.
 
 -- ===========================================================================
 -- Business expenses — a claim, with its proof, against one transaction.
@@ -212,9 +179,8 @@ BEGIN
   INSERT INTO monthly_aggregations (month, income, business_expenses, transaction_count, updated_at)
   SELECT
     date_trunc('month', t.transaction_date)::date,
-    COALESCE(SUM(t.amount) FILTER (
-      WHERE t.amount > 0 AND COALESCE(t.counts_as_income, c.counts_as_income, TRUE)
-    ), 0),
+    -- Every credit. See the header for why this is not qualified any further.
+    COALESCE(SUM(t.amount) FILTER (WHERE t.amount > 0), 0),
     -- Claimed rows only, and each for its apportioned amount when one is set.
     COALESCE(SUM(COALESCE(b.deductible_amount, -t.amount)) FILTER (
       WHERE b.transaction_id IS NOT NULL
@@ -222,12 +188,9 @@ BEGIN
     COUNT(*),
     NOW()
   FROM transactions t
-  -- Both LEFT JOINs are at most one row: an unclassified category leaves the
-  -- rule column NULL so the COALESCE above falls through to the default, and
-  -- business_expenses.transaction_id is UNIQUE so the claim cannot fan the row
-  -- out and inflate transaction_count.
-  LEFT JOIN transaction_categories c ON lower(c.category) = lower(t.category)
-  LEFT JOIN business_expenses      b ON b.transaction_id = t.id
+  -- At most one claim per transaction — business_expenses.transaction_id is
+  -- UNIQUE — so the join cannot fan a row out and inflate transaction_count.
+  LEFT JOIN business_expenses b ON b.transaction_id = t.id
   WHERE p_months IS NULL
      OR date_trunc('month', t.transaction_date)::date = ANY (p_months)
   GROUP BY 1
@@ -395,15 +358,6 @@ CREATE TRIGGER transactions_aggregate_truncate
 DROP TRIGGER IF EXISTS business_expenses_aggregate_truncate ON business_expenses;
 CREATE TRIGGER business_expenses_aggregate_truncate
   AFTER TRUNCATE ON business_expenses
-  FOR EACH STATEMENT EXECUTE FUNCTION refresh_monthly_aggregations_all();
-
--- Reclassifying a category rewrites history — it changes what past months
--- counted as income — so it rebuilds everything. The ledger is one small
--- business account's statements, so a full pass is cheap, and rules are edited
--- by hand a few times a year.
-DROP TRIGGER IF EXISTS transaction_categories_aggregate ON transaction_categories;
-CREATE TRIGGER transaction_categories_aggregate
-  AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON transaction_categories
   FOR EACH STATEMENT EXECUTE FUNCTION refresh_monthly_aggregations_all();
 
 -- Backfill for an existing ledger. A no-op on a fresh database, and idempotent,

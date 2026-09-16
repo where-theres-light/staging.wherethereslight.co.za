@@ -299,7 +299,7 @@ do with it*: one row per calendar month.
 | column | meaning |
 | --- | --- |
 | `month` | first day of the month (the primary key) |
-| `income` | the month's credits that count as income |
+| `income` | every credit in the month |
 | `pre_deduction` | **PD** — 10% of `income`, set aside before anything else |
 | `expandable_amount` | **EA** — 40% of `income` |
 | `business_expenses` | the month's claimed business spending |
@@ -315,36 +315,20 @@ Because the rates live in the column expressions, changing one is an
 for a rule the owner sets, but it does mean a month cannot be pinned to the rate
 that was in force at the time.
 
-The two inputs are deliberately **asymmetric**, because the two questions differ:
-income is *presumed*, a deduction must be *substantiated*.
+The two inputs are deliberately **asymmetric**: income is counted, a deduction
+must be *substantiated*.
 
-### Income — which credits count
+### Income — every credit
 
-The statement cannot tell you: a transfer in from savings is a credit, and
-counting it would inflate both the month's income and the tax set aside against
-it. Each credit resolves three ways, most specific first:
+`income` is every credit in the month, full stop. Nothing has to be said about a
+deposit for the month to be summarised.
 
-1. the transaction's own **override** — `transactions.counts_as_income`, nullable
-   and normally `NULL`;
-2. the rule for its **bank category** in **`transaction_categories`**, matched
-   case-insensitively against `transactions.category`;
-3. the **default** — a credit *is* income.
-
-Default-in with named exceptions is what keeps this from being busywork: on a
-small business account the exceptions are one or two categories, named once,
-rather than a decision on every deposit.
-
-```sql
-INSERT INTO transaction_categories (category, counts_as_income, note)
-VALUES ('Transfer', FALSE, 'own-account movement / owner draw');
-```
-
-The override is for where a category is too blunt, since the category comes from
-the bank and cannot be edited to carve one row out:
-
-```sql
-UPDATE transactions SET counts_as_income = FALSE WHERE id = 123;
-```
+That is the deliberate simple case rather than an oversight: it does mean a
+transfer in from savings reads as income, and so inflates both the month's income
+and the 10% set aside against it. If that starts to matter, the place to fix it
+is the income filter in `refresh_monthly_aggregations`, fed by whatever says a
+credit is not income — a rule per bank category, a column on `transactions`, or
+both.
 
 ### Business expenses — a claim, with its proof
 
@@ -396,9 +380,7 @@ Nothing has to be run after an import. **`db/004_monthly_aggregations.sql`** put
 statement-level triggers on `transactions` and on `business_expenses`
 (insert / update / delete / truncate) that recompute exactly the months affected
 — including *both* months when a transaction's date moves across a boundary, or
-when a claim is re-pointed at a transaction in another month — plus a trigger on
-`transaction_categories` that rebuilds everything, since reclassifying a category
-rewrites history.
+when a claim is re-pointed at a transaction in another month.
 
 They are **statement**-level rather than row-level on purpose: an import writes a
 whole statement in one `INSERT`, and a row-level trigger would recompute the same
@@ -423,11 +405,10 @@ leaving a stale one behind.
    editor (or `supabase db push`), after `db/003_transactions.sql`. Idempotent,
    and it ends by backfilling every month already in the ledger, so an existing
    ledger is summarised the moment it runs.
-2. **Classify and claim as you go** — nothing is required up front. Add
-   `transaction_categories` rows as you meet credits that are not income, and a
-   `business_expenses` row for each payment you intend to deduct.
+2. **Claim as you go** — nothing is required up front; add a `business_expenses`
+   row for each payment you intend to deduct.
 
-All three tables are RLS on with no policies, like the ledger they derive from.
+Both tables are RLS on with no policies, like the ledger they derive from.
 There is no edge function and no import path: the site never touches them, and
 the owner reads and writes them from the dashboard.
 
