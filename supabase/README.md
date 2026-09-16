@@ -294,71 +294,109 @@ only `IMPORT_TOKEN`, which can do exactly one thing — append statement rows.
 ## Monthly aggregations
 
 `transactions` answers *what moved*. **`monthly_aggregations`** answers *what to
-do with it*: one row per calendar month holding the month's income, the three
-buckets that income is split into, and the month's deductible spending.
+do with it*: one row per calendar month.
 
 | column | meaning |
 | --- | --- |
 | `month` | first day of the month (the primary key) |
 | `income` | the month's credits that count as income |
 | `pre_deduction` | **PD** — 10% of `income`, set aside before anything else |
-| `expendable_income` | **EI** — 40% of `income` |
-| `non_expendable_income` | **NEI** — 50% of `income` |
-| `business_expenses` | the month's tax-deductible spending, as a positive total |
-| `transaction_count` | every transaction in the month, classified or not — how you tell "no income" from "never imported" |
+| `expandable_amount` | **EA** — 40% of `income` |
+| `business_expenses` | the month's claimed business spending |
+| `transaction_count` | every transaction in the month, claimed or not — how you tell "no income" from "never imported" |
 
-PD, EI and NEI are **generated columns**, not stored numbers: they are by
-definition functions of `income`, so deriving them in the schema is what stops
-them drifting from it, and they cannot be written to. NEI is computed as the
-remainder (`income - PD - EI`) rather than a second `round()`, because at
-10/40/50 the three shares have to add back to `income` exactly and rounding each
-one independently can leave a stray cent (income `100.05` → `10.01 + 40.02 +
-50.03` = `100.06`). The remainder absorbs it into the largest share.
+PD and EA are **generated columns**, not stored numbers: they are by definition
+functions of `income`, so deriving them in the schema is what stops them drifting
+from it, and they cannot be written to. They deliberately do not add up to
+`income` — the remaining 50% is simply unallocated here.
 
 Because the rates live in the column expressions, changing one is an
 `ALTER TABLE` that recomputes **every** month, history included. That is right
 for a rule the owner sets, but it does mean a month cannot be pinned to the rate
 that was in force at the time.
 
-### Classification — what counts as income, what counts as deductible
+The two inputs are deliberately **asymmetric**, because the two questions differ:
+income is *presumed*, a deduction must be *substantiated*.
 
-The statement cannot tell you: a transfer in from savings is a credit but not
-income, and an owner draw is a debit but not a business expense. So each
-transaction is resolved three ways, most specific first:
+### Income — which credits count
 
-1. the transaction's own **override** — `transactions.counts_as_income` /
-   `transactions.tax_deductible`, both nullable and normally `NULL`;
+The statement cannot tell you: a transfer in from savings is a credit, and
+counting it would inflate both the month's income and the tax set aside against
+it. Each credit resolves three ways, most specific first:
+
+1. the transaction's own **override** — `transactions.counts_as_income`, nullable
+   and normally `NULL`;
 2. the rule for its **bank category** in **`transaction_categories`**, matched
    case-insensitively against `transactions.category`;
-3. the **default** — a credit *is* income, a debit *is* deductible.
+3. the **default** — a credit *is* income.
 
-Defaulting to "in, unless excluded" in both directions suits a business account:
-money arriving is income and money leaving is a business cost, with a short,
-nameable list of exceptions. It also means the aggregations are complete from the
-very first import instead of reading zero until everything has been classified —
-they start broad and tighten as exceptions get named.
-
-So the normal workflow is to name categories as you meet them:
+Default-in with named exceptions is what keeps this from being busywork: on a
+small business account the exceptions are one or two categories, named once,
+rather than a decision on every deposit.
 
 ```sql
-INSERT INTO transaction_categories (category, counts_as_income, tax_deductible, note)
-VALUES ('Transfer', FALSE, FALSE, 'own-account movement / owner draw');
+INSERT INTO transaction_categories (category, counts_as_income, note)
+VALUES ('Transfer', FALSE, 'own-account movement / owner draw');
 ```
 
-and to reach for an override only where a category is too blunt — one personal
-purchase from a shop you otherwise buy supplies at, say, which cannot be carved
-out by category because the category comes from the bank:
+The override is for where a category is too blunt, since the category comes from
+the bank and cannot be edited to carve one row out:
 
 ```sql
-UPDATE transactions SET tax_deductible = FALSE WHERE id = 123;
+UPDATE transactions SET counts_as_income = FALSE WHERE id = 123;
 ```
+
+### Business expenses — a claim, with its proof
+
+Nothing is deductible until it is **claimed**. A row in **`business_expenses`**
+is the assertion "this payment was a business expense, and here is what backs it
+up", and the month's total is the sum of those rows — never inferred from a
+description or a bank category, so it never has to be guessed at.
+
+```sql
+INSERT INTO business_expenses
+  (transaction_id, purpose, expense_type, supplier, invoice_number, invoice_date, proof_url)
+VALUES
+  (412, 'Mountboard and glass for the January print run', 'materials',
+   'Art Supplies CC', 'INV-2026-0041', '2026-01-11', 'https://…/inv-41.pdf');
+```
+
+| column | meaning |
+| --- | --- |
+| `transaction_id` | the payment claimed — `UNIQUE`, so nothing is claimed twice, and `ON DELETE CASCADE`, since a claim against a deleted transaction is meaningless |
+| `purpose` | what the money was for — **required** |
+| `deductible_amount` | apportionment for a partly-business cost; `NULL` (the normal case) claims the whole payment |
+| `expense_type` | kind of expense, for grouping at tax time — free text |
+| `supplier`, `invoice_number`, `invoice_date`, `proof_url` | the supporting document; `invoice_date` is separate because an invoice is often dated before the payment clears |
+| `note` | anything else worth recording |
+
+`purpose` is `NOT NULL` on purpose: what the money was for is the one thing a
+deduction cannot be defended without, and the thing that is impossible to
+reconstruct a year later — so it is required while it is still known.
+`proof_url` left `NULL` means the claim is made but the paperwork is not filed
+yet, which is worth querying for before year end:
+
+```sql
+SELECT t.transaction_date, t.description, b.purpose
+  FROM business_expenses b JOIN transactions t ON t.id = b.transaction_id
+ WHERE b.proof_url IS NULL ORDER BY t.transaction_date;
+```
+
+Two rules a `CHECK` cannot express are enforced by a row trigger, because both
+need the referenced transaction: only **money out** can be claimed (a refund
+arrives as a credit, but that reduces an existing claim rather than being one),
+and `deductible_amount` can never exceed the payment.
+
+The claim carries no date of its own — the expense belongs to the month the money
+moved, like everything else here.
 
 ### How it stays current
 
 Nothing has to be run after an import. **`db/004_monthly_aggregations.sql`** puts
-statement-level triggers on `transactions` (insert / update / delete / truncate)
-that recompute exactly the months the statement touched — including *both* months
-when a transaction's date moves across a month boundary — and a trigger on
+statement-level triggers on `transactions` and on `business_expenses`
+(insert / update / delete / truncate) that recompute exactly the months affected
+— including *both* months when a transaction's date moves across a boundary, or
+when a claim is re-pointed at a transaction in another month — plus a trigger on
 `transaction_categories` that rebuilds everything, since reclassifying a category
 rewrites history.
 
@@ -371,7 +409,7 @@ The whole maintenance path is one idempotent function, so a rebuild by hand is
 the same code the triggers run:
 
 ```sql
-SELECT refresh_monthly_aggregations();                      -- every month
+SELECT refresh_monthly_aggregations();                           -- every month
 SELECT refresh_monthly_aggregations(ARRAY['2026-01-01'::date]);  -- just January
 ```
 
@@ -385,12 +423,13 @@ leaving a stale one behind.
    editor (or `supabase db push`), after `db/003_transactions.sql`. Idempotent,
    and it ends by backfilling every month already in the ledger, so an existing
    ledger is summarised the moment it runs.
-2. **Classify as needed** — nothing is required up front; add
-   `transaction_categories` rows as you find categories that should not count.
+2. **Classify and claim as you go** — nothing is required up front. Add
+   `transaction_categories` rows as you meet credits that are not income, and a
+   `business_expenses` row for each payment you intend to deduct.
 
-Both tables are RLS on with no policies, like the ledger they are derived from.
+All three tables are RLS on with no policies, like the ledger they derive from.
 There is no edge function and no import path: the site never touches them, and
-the owner reads them from the dashboard.
+the owner reads and writes them from the dashboard.
 
 ## Mailing-list subscriptions
 

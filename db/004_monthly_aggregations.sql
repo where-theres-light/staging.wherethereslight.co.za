@@ -1,22 +1,18 @@
 -- Monthly aggregations: the month-by-month summary derived from `transactions`.
 --
 -- The ledger in db/003_transactions.sql answers "what moved". This answers "what
--- do I do with it": for each calendar month, how much came in, how that income
--- splits into the three buckets the money is run on, and how much of the month's
--- spending is a deductible business expense.
+-- do I do with it": for each calendar month, how much came in, how much of that
+-- is set aside or free to spend, and how much of the month's spending is a
+-- claimable business expense.
 --
---   pre_deduction (PD)          10% of income  — set aside before anything else
---   expendable_income (EI)      40% of income
---   non_expendable_income (NEI) 50% of income
---   business_expenses           the month's tax-deductible spending
+--   pre_deduction (PD)     10% of income — set aside before anything else
+--   expandable_amount (EA) 40% of income
+--   business_expenses      the month's claimed business spending
 --
--- The three splits are GENERATED columns, not stored facts: they are by
--- definition functions of `income`, so deriving them in the schema is what stops
--- them ever drifting from it. NEI is written as the remainder
--- (income - PD - EI) rather than a second round(): at 10/40/50 the three shares
--- must add back to `income` exactly, and rounding each independently can leave a
--- stray cent (income 100.05 -> 10.01 + 40.02 + 50.03 = 100.06). The remainder
--- absorbs it into the largest share, where it distorts least.
+-- PD and EA are GENERATED columns, not stored facts: they are by definition
+-- functions of `income`, so deriving them in the schema is what stops them ever
+-- drifting from it. They deliberately do not add up to `income` — the remaining
+-- 50% is simply unallocated here.
 --
 -- Consequence worth knowing: because the rates live in the column expressions,
 -- changing one is an ALTER TABLE that recomputes *every* month, history
@@ -24,37 +20,43 @@
 -- a per-month rate — a month cannot be pinned to the rate in force at the time.
 --
 -- Like 002 and 003 this is owner-only: RLS on with NO policies. Nothing in the
--- shipped site reads or writes it. It is maintained entirely by triggers — there
--- is no import path and nothing to call by hand after a statement import.
+-- shipped site reads or writes any of it. The summary is maintained entirely by
+-- triggers — there is no import path and nothing to run by hand after an import.
+--
+-- The two inputs are deliberately asymmetric, because that is how the two
+-- questions actually differ:
+--
+--   • Income is PRESUMED. Money arriving in a business account is income unless
+--     it is your own money moving, so credits count by default and the few
+--     exceptions are named (see `transaction_categories` below).
+--   • A deduction must be SUBSTANTIATED. Nothing is a business expense until it
+--     is claimed as one, with proof, in `business_expenses` below. Nothing is
+--     ever inferred from the statement.
 
 -- ===========================================================================
--- Classification — which transactions count as income, and which as deductible.
+-- Income — which credits actually count as income.
 -- ===========================================================================
 --
 -- `transactions` records what the bank printed; it carries no notion of whether
--- a credit is really income or whether a debit is really a business expense. The
--- statement cannot know: a transfer in from savings is a credit but not income,
--- and an owner draw is a debit but not deductible.
+-- a credit is really income. The statement cannot know: a transfer in from
+-- savings is a credit, and counting it would inflate both the month's income and
+-- the tax set aside against it.
 --
 -- Resolution is three levels, most specific first:
 --
 --   1. the transaction's own override column, when set;
 --   2. the rule for its bank category, when one exists here;
---   3. the default — a credit IS income, a debit IS deductible.
+--   3. the default — a credit IS income.
 --
--- The default is "in, unless excluded" in both directions, which suits a
--- business account: money arriving is income and money leaving is a business
--- cost, with a short, nameable list of exceptions (own transfers, owner draws,
--- SARS payments, personal spend). It also means the aggregations are complete
--- from the first import rather than reading zero until everything is classified
--- — they start broad and tighten as exceptions get named.
+-- Default-in with named exceptions is what keeps this from being busywork: the
+-- exceptions on a small business account are one or two categories ("Transfer"),
+-- named once, rather than a decision on every deposit.
 CREATE TABLE IF NOT EXISTS transaction_categories (
   -- The bank's own category, exactly as printed on the statement and stored in
   -- transactions.category. Matched case-insensitively, so casing drift between
   -- statements cannot silently orphan a rule.
   category         TEXT PRIMARY KEY,
-  counts_as_income BOOLEAN NOT NULL DEFAULT TRUE,  -- applies to credits
-  tax_deductible   BOOLEAN NOT NULL DEFAULT TRUE,  -- applies to debits
+  counts_as_income BOOLEAN NOT NULL DEFAULT TRUE,
   note             TEXT,
   created_at       TIMESTAMPTZ DEFAULT NOW()
 );
@@ -65,13 +67,102 @@ CREATE UNIQUE INDEX IF NOT EXISTS transaction_categories_lower_idx
 ALTER TABLE transaction_categories ENABLE ROW LEVEL SECURITY;
 -- No policies: owner-only, edited from the dashboard.
 
--- Per-transaction overrides. NULL — the normal case — means "no opinion, use the
--- category rule". They exist because a category is a blunt instrument: one
--- personal purchase from a shop you otherwise buy supplies at cannot be
--- expressed as a category, and the category comes from the bank so it cannot be
--- edited to carve the row out.
+-- Per-transaction override. NULL — the normal case — means "no opinion, use the
+-- category rule". It exists because a category is a blunt instrument, and the
+-- category comes from the bank so it cannot be edited to carve one row out.
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counts_as_income BOOLEAN;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tax_deductible   BOOLEAN;
+
+-- ===========================================================================
+-- Business expenses — a claim, with its proof, against one transaction.
+-- ===========================================================================
+--
+-- A row here is the assertion "this payment was a deductible business expense,
+-- and here is what backs it up". Nothing else makes a transaction deductible:
+-- the month's total is the sum of these rows, so it is never inferred from a
+-- description or a bank category and never has to be guessed at.
+--
+-- That is also why `purpose` is NOT NULL. What the money was for is the one
+-- thing a deduction cannot be defended without, and it is the thing that is
+-- impossible to reconstruct a year later — so it is required at the moment the
+-- claim is made, while it is still known.
+CREATE TABLE IF NOT EXISTS business_expenses (
+  id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+  -- One claim per transaction. UNIQUE because a payment is either a business
+  -- expense or it is not — two rows would double-count it. CASCADE because a
+  -- claim against a transaction that no longer exists is meaningless.
+  transaction_id    BIGINT NOT NULL UNIQUE REFERENCES transactions (id) ON DELETE CASCADE,
+
+  -- Apportionment, for a cost that is only partly business — a phone bill, a
+  -- home-office share. NULL, the normal case, claims the whole payment. Stored
+  -- positive: `transactions.amount` is negative for money out, and this is read
+  -- as an amount claimed rather than as a movement.
+  deductible_amount NUMERIC(12,2) CHECK (deductible_amount > 0),
+
+  -- What it was for. Required — see above.
+  purpose           TEXT NOT NULL,
+
+  -- Kind of expense, for grouping at tax time (materials, packaging, postage,
+  -- studio rent, bank charges, …). Free text: the categories that matter are the
+  -- ones the accountant asks for, and a CHECK constraint here would just have to
+  -- be migrated every time that list changed.
+  expense_type      TEXT,
+
+  -- The supporting document. A deduction has to be substantiated on request and
+  -- the document kept for five years, so record who issued it, its number and
+  -- its own date (an invoice is often dated before the payment clears), and a
+  -- link to wherever the scan is filed. `proof_url` NULL means the claim is made
+  -- but the paperwork is not filed yet — worth querying for before year end.
+  supplier          TEXT,
+  invoice_number    TEXT,
+  invoice_date      DATE,
+  proof_url         TEXT,
+
+  note              TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE business_expenses ENABLE ROW LEVEL SECURITY;
+-- No policies: owner-only, like the ledger it references.
+
+-- Two things a CHECK cannot express, because both need the referenced row.
+CREATE OR REPLACE FUNCTION business_expenses_validate()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_amount NUMERIC(12,2);
+BEGIN
+  SELECT amount INTO v_amount FROM transactions WHERE id = NEW.transaction_id;
+  -- Missing row: leave it to the foreign key, which rejects it with a better
+  -- message than anything raised here.
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  -- Only money out can be claimed. A refund of a business cost arrives as a
+  -- credit, but that reduces an existing claim — it is not a claim of its own.
+  IF v_amount >= 0 THEN
+    RAISE EXCEPTION
+      'transaction % is not money out (amount %), so it cannot be claimed as a business expense',
+      NEW.transaction_id, v_amount;
+  END IF;
+
+  IF NEW.deductible_amount IS NOT NULL AND NEW.deductible_amount > -v_amount THEN
+    RAISE EXCEPTION
+      'deductible_amount % exceeds transaction %''s amount of %',
+      NEW.deductible_amount, NEW.transaction_id, -v_amount;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS business_expenses_validate ON business_expenses;
+CREATE TRIGGER business_expenses_validate
+  BEFORE INSERT OR UPDATE ON business_expenses
+  FOR EACH ROW EXECUTE FUNCTION business_expenses_validate();
 
 -- ===========================================================================
 -- The aggregations.
@@ -79,28 +170,24 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS tax_deductible   BOOLEAN;
 
 CREATE TABLE IF NOT EXISTS monthly_aggregations (
   -- First day of the calendar month the row summarises.
-  month                 DATE          PRIMARY KEY,
+  month             DATE          PRIMARY KEY,
 
   -- Every credit in the month that resolves to income, summed. Positive.
-  income                NUMERIC(12,2) NOT NULL DEFAULT 0,
+  income            NUMERIC(12,2) NOT NULL DEFAULT 0,
 
-  pre_deduction         NUMERIC(12,2)
-    GENERATED ALWAYS AS (round(income * 0.10, 2)) STORED,
-  expendable_income     NUMERIC(12,2)
-    GENERATED ALWAYS AS (round(income * 0.40, 2)) STORED,
-  non_expendable_income NUMERIC(12,2)
-    GENERATED ALWAYS AS (income - round(income * 0.10, 2) - round(income * 0.40, 2)) STORED,
+  pre_deduction     NUMERIC(12,2) GENERATED ALWAYS AS (round(income * 0.10, 2)) STORED,
+  expandable_amount NUMERIC(12,2) GENERATED ALWAYS AS (round(income * 0.40, 2)) STORED,
 
-  -- Every debit in the month that resolves to deductible, summed as a positive
-  -- magnitude. Stored positive because it is read as a total spent, not as a
-  -- movement — the signed amounts stay in `transactions`.
-  business_expenses     NUMERIC(12,2) NOT NULL DEFAULT 0,
+  -- The month's claims in `business_expenses`, summed as a positive total. A
+  -- month with no claims reads 0 — which here means "nothing claimed", not
+  -- "nothing deductible".
+  business_expenses NUMERIC(12,2) NOT NULL DEFAULT 0,
 
-  -- Every transaction in the month, classified or not. Provenance: it is how you
+  -- Every transaction in the month, claimed or not. Provenance: it is how you
   -- tell "no income that month" from "that month was never imported".
-  transaction_count     INTEGER       NOT NULL DEFAULT 0,
+  transaction_count INTEGER       NOT NULL DEFAULT 0,
 
-  updated_at            TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+  updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE monthly_aggregations ENABLE ROW LEVEL SECURITY;
@@ -128,15 +215,19 @@ BEGIN
     COALESCE(SUM(t.amount) FILTER (
       WHERE t.amount > 0 AND COALESCE(t.counts_as_income, c.counts_as_income, TRUE)
     ), 0),
-    COALESCE(SUM(-t.amount) FILTER (
-      WHERE t.amount < 0 AND COALESCE(t.tax_deductible, c.tax_deductible, TRUE)
+    -- Claimed rows only, and each for its apportioned amount when one is set.
+    COALESCE(SUM(COALESCE(b.deductible_amount, -t.amount)) FILTER (
+      WHERE b.transaction_id IS NOT NULL
     ), 0),
     COUNT(*),
     NOW()
   FROM transactions t
-  -- LEFT JOIN, so an unclassified category leaves both rule columns NULL and the
-  -- COALESCEs above fall through to the default.
+  -- Both LEFT JOINs are at most one row: an unclassified category leaves the
+  -- rule column NULL so the COALESCE above falls through to the default, and
+  -- business_expenses.transaction_id is UNIQUE so the claim cannot fan the row
+  -- out and inflate transaction_count.
   LEFT JOIN transaction_categories c ON lower(c.category) = lower(t.category)
+  LEFT JOIN business_expenses      b ON b.transaction_id = t.id
   WHERE p_months IS NULL
      OR date_trunc('month', t.transaction_date)::date = ANY (p_months)
   GROUP BY 1
@@ -165,7 +256,7 @@ $$;
 --
 -- Statement-level triggers with transition tables, not row-level ones: an import
 -- writes a whole statement in a single INSERT, and a row-level trigger would
--- recompute the same month once per row. This recomputes each affected month
+-- recompute the same month once per row. These recompute each affected month
 -- once per statement however many rows it carried.
 CREATE OR REPLACE FUNCTION transactions_refresh_aggregations()
 RETURNS TRIGGER
@@ -220,7 +311,69 @@ CREATE TRIGGER transactions_aggregate_delete
   REFERENCING OLD TABLE AS old_rows
   FOR EACH STATEMENT EXECUTE FUNCTION transactions_refresh_aggregations();
 
--- Full rebuild, used by the two cases that cannot name the affected months.
+-- Claiming, amending or withdrawing an expense changes its month's total, so it
+-- refreshes the same way. The month comes from the referenced transaction — the
+-- claim itself carries no date of its own, on purpose: the expense belongs to
+-- the month the money moved, like everything else here.
+CREATE OR REPLACE FUNCTION business_expenses_refresh_aggregations()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_ids    BIGINT[];
+  v_months DATE[];
+BEGIN
+  -- Same branch as above, and for the same reason: a trigger may only reference
+  -- the transition tables its operation actually has. An UPDATE needs both,
+  -- since re-pointing a claim at another transaction changes two months.
+  IF TG_OP = 'INSERT' THEN
+    SELECT array_agg(transaction_id) INTO v_ids FROM new_rows;
+  ELSIF TG_OP = 'DELETE' THEN
+    SELECT array_agg(transaction_id) INTO v_ids FROM old_rows;
+  ELSE
+    SELECT array_agg(id) INTO v_ids FROM (
+      SELECT transaction_id AS id FROM new_rows
+      UNION
+      SELECT transaction_id      FROM old_rows
+    ) s;
+  END IF;
+
+  SELECT array_agg(DISTINCT date_trunc('month', t.transaction_date)::date)
+    INTO v_months
+  FROM transactions t
+  WHERE t.id = ANY (v_ids);
+
+  -- NULL when the statement touched nothing, and also on a cascaded delete,
+  -- where the transactions are already gone — that case needs no handling here
+  -- because the transaction's own AFTER DELETE trigger refreshes those months.
+  IF v_months IS NOT NULL THEN
+    PERFORM refresh_monthly_aggregations(v_months);
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS business_expenses_aggregate_insert ON business_expenses;
+CREATE TRIGGER business_expenses_aggregate_insert
+  AFTER INSERT ON business_expenses
+  REFERENCING NEW TABLE AS new_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION business_expenses_refresh_aggregations();
+
+DROP TRIGGER IF EXISTS business_expenses_aggregate_update ON business_expenses;
+CREATE TRIGGER business_expenses_aggregate_update
+  AFTER UPDATE ON business_expenses
+  REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION business_expenses_refresh_aggregations();
+
+DROP TRIGGER IF EXISTS business_expenses_aggregate_delete ON business_expenses;
+CREATE TRIGGER business_expenses_aggregate_delete
+  AFTER DELETE ON business_expenses
+  REFERENCING OLD TABLE AS old_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION business_expenses_refresh_aggregations();
+
+-- Full rebuild, for the cases that cannot name the affected months.
 CREATE OR REPLACE FUNCTION refresh_monthly_aggregations_all()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -232,17 +385,22 @@ BEGIN
 END;
 $$;
 
--- TRUNCATE does not fire the row triggers above and carries no transition
--- tables, so without this an emptied ledger would leave every month behind.
+-- TRUNCATE does not fire the triggers above and carries no transition tables, so
+-- without these an emptied ledger would leave every month behind.
 DROP TRIGGER IF EXISTS transactions_aggregate_truncate ON transactions;
 CREATE TRIGGER transactions_aggregate_truncate
   AFTER TRUNCATE ON transactions
   FOR EACH STATEMENT EXECUTE FUNCTION refresh_monthly_aggregations_all();
 
+DROP TRIGGER IF EXISTS business_expenses_aggregate_truncate ON business_expenses;
+CREATE TRIGGER business_expenses_aggregate_truncate
+  AFTER TRUNCATE ON business_expenses
+  FOR EACH STATEMENT EXECUTE FUNCTION refresh_monthly_aggregations_all();
+
 -- Reclassifying a category rewrites history — it changes what past months
--- counted as income or as deductible — so it rebuilds everything. The ledger is
--- one small business account's statements, so a full pass is cheap, and rules
--- are edited by hand a few times a year.
+-- counted as income — so it rebuilds everything. The ledger is one small
+-- business account's statements, so a full pass is cheap, and rules are edited
+-- by hand a few times a year.
 DROP TRIGGER IF EXISTS transaction_categories_aggregate ON transaction_categories;
 CREATE TRIGGER transaction_categories_aggregate
   AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON transaction_categories
