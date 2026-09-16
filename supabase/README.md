@@ -4,12 +4,13 @@ The production catalogue, checkout/orders, mailing list, and page-visit metrics
 live in Supabase. The offline `dev` build never touches it — it seeds the same
 catalogue data from `ui/demo.js`.
 
-The schema is **three migrations**: `db/001_catalog.sql` for the public,
+The schema is **four migrations**: `db/001_catalog.sql` for the public,
 read-only product catalogue, `db/002_sessions.sql` for everything the site
 writes — `sessions` (the hub) plus every table that references it (`orders`,
-`subscriptions`, `page_visits`) and the shared `rate_limits` — and
-`db/003_transactions.sql` for the bank ledger, which the site never touches at
-all (see *Bank transactions* below).
+`subscriptions`, `page_visits`) and the shared `rate_limits` — and, for the
+books, which the site never touches at all, `db/003_transactions.sql` (the bank
+ledger) and `db/004_monthly_aggregations.sql` (the month-by-month summary
+derived from it). See *Bank transactions* and *Monthly aggregations* below.
 
 ## Sessions (the hub)
 
@@ -289,6 +290,122 @@ which reads both AES- and RC4-encrypted statements.
 
 Nothing here is given a service-role key: the machine running the import holds
 only `IMPORT_TOKEN`, which can do exactly one thing — append statement rows.
+
+## Monthly aggregations
+
+`transactions` answers *what moved*, one row at a time. **`monthly_aggregations`**
+answers it a month at a time — one row per calendar month:
+
+| column | meaning |
+| --- | --- |
+| `month` | first day of the month (the primary key) |
+| `income` | everything that came in — every credit |
+| `expenses` | everything that went out — every debit, fees included |
+| `business_expenses` | the slice of those expenses claimed as deductible |
+| `transaction_count` | every transaction in the month, claimed or not — how you tell "no income" from "never imported" |
+
+`income` and `expenses` are the month's two raw sides, so `income - expenses` is
+its net movement — the same figure the statement's own balance chain steps
+through, which is what makes the summary checkable against the PDF.
+`business_expenses` is a **subset** of `expenses`, never a separate total: it can
+only ever be smaller, because a claim is made against a debit and can never
+exceed it.
+
+Only one of the three asks anything of you.
+
+### Income and expenses — counted, not classified
+
+Both are taken straight off the ledger: `income` is every credit in the month,
+`expenses` every debit. Nothing has to be said about a transaction for its month
+to be summarised.
+
+That is the deliberate simple case rather than an oversight: it does mean a
+transfer in from savings reads as income, and a transfer out to savings as an
+expense. If that starts to matter, the place to fix it is the income (or
+expenses) filter in `refresh_monthly_aggregations`, fed by whatever says a credit
+is not income — a rule per bank category, a column on `transactions`, or both.
+
+### Business expenses — a claim, with its proof
+
+Nothing is deductible until it is **claimed**. A row in **`business_expenses`**
+is the assertion "this payment was a business expense, and here is what backs it
+up", and the month's total is the sum of those rows — never inferred from a
+description or a bank category, so it never has to be guessed at.
+
+```sql
+INSERT INTO business_expenses
+  (transaction_id, purpose, expense_type, supplier, invoice_number, invoice_date, proof_url)
+VALUES
+  (412, 'Mountboard and glass for the January print run', 'materials',
+   'Art Supplies CC', 'INV-2026-0041', '2026-01-11', 'https://…/inv-41.pdf');
+```
+
+| column | meaning |
+| --- | --- |
+| `transaction_id` | the payment claimed — `UNIQUE`, so nothing is claimed twice, and `ON DELETE CASCADE`, since a claim against a deleted transaction is meaningless |
+| `purpose` | what the money was for — **required** |
+| `deductible_amount` | apportionment for a partly-business cost; `NULL` (the normal case) claims the whole payment |
+| `expense_type` | kind of expense, for grouping at tax time — free text |
+| `supplier`, `invoice_number`, `invoice_date`, `proof_url` | the supporting document; `invoice_date` is separate because an invoice is often dated before the payment clears |
+| `note` | anything else worth recording |
+
+`purpose` is `NOT NULL` on purpose: what the money was for is the one thing a
+deduction cannot be defended without, and the thing that is impossible to
+reconstruct a year later — so it is required while it is still known.
+`proof_url` left `NULL` means the claim is made but the paperwork is not filed
+yet, which is worth querying for before year end:
+
+```sql
+SELECT t.transaction_date, t.description, b.purpose
+  FROM business_expenses b JOIN transactions t ON t.id = b.transaction_id
+ WHERE b.proof_url IS NULL ORDER BY t.transaction_date;
+```
+
+Two rules a `CHECK` cannot express are enforced by a row trigger, because both
+need the referenced transaction: only **money out** can be claimed (a refund
+arrives as a credit, but that reduces an existing claim rather than being one),
+and `deductible_amount` can never exceed the payment.
+
+The claim carries no date of its own — the expense belongs to the month the money
+moved, like everything else here.
+
+### How it stays current
+
+Nothing has to be run after an import. **`db/004_monthly_aggregations.sql`** puts
+statement-level triggers on `transactions` and on `business_expenses`
+(insert / update / delete / truncate) that recompute exactly the months affected
+— including *both* months when a transaction's date moves across a boundary, or
+when a claim is re-pointed at a transaction in another month.
+
+They are **statement**-level rather than row-level on purpose: an import writes a
+whole statement in one `INSERT`, and a row-level trigger would recompute the same
+month once per row. A re-imported statement where every row already exists
+inserts nothing and therefore refreshes nothing.
+
+The whole maintenance path is one idempotent function, so a rebuild by hand is
+the same code the triggers run:
+
+```sql
+SELECT refresh_monthly_aggregations();                           -- every month
+SELECT refresh_monthly_aggregations(ARRAY['2026-01-01'::date]);  -- just January
+```
+
+It both upserts months that have transactions and deletes months that no longer
+do, so removing the last transaction in a month removes its row rather than
+leaving a stale one behind.
+
+### Setup
+
+1. **Run the migration** — paste `db/004_monthly_aggregations.sql` into the SQL
+   editor (or `supabase db push`), after `db/003_transactions.sql`. Idempotent,
+   and it ends by backfilling every month already in the ledger, so an existing
+   ledger is summarised the moment it runs.
+2. **Claim as you go** — nothing is required up front; add a `business_expenses`
+   row for each payment you intend to deduct.
+
+Both tables are RLS on with no policies, like the ledger they derive from.
+There is no edge function and no import path: the site never touches them, and
+the owner reads and writes them from the dashboard.
 
 ## Mailing-list subscriptions
 

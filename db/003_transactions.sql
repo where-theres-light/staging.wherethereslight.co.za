@@ -1,10 +1,11 @@
 -- Bank transactions: the running ledger imported from Capitec statements.
 --
--- This is the cash-position table — what came in, what went out, and (through
--- `category`) how much of it needs setting aside for tax. It is *not* order or
--- catalogue data: an order is what a buyer owes, a transaction is money that
--- actually moved through the bank account, so the two are deliberately separate
--- and unlinked.
+-- This is the cash-position table — what came in and what went out. What that
+-- means for tax is a separate question, answered in db/004_monthly_aggregations.sql,
+-- where the month's income is split and expenses are claimed with their proof.
+-- It is *not* order or catalogue data: an order is what a buyer owes, a
+-- transaction is money that actually moved through the bank account, so the two
+-- are deliberately separate and unlinked.
 --
 -- Like everything in db/002_sessions.sql, this is owner-only data: RLS is
 -- enabled with NO policies, so anon/authenticated can neither read nor write it.
@@ -40,8 +41,9 @@ CREATE TABLE IF NOT EXISTS transactions (
   UNIQUE (transaction_date, description, amount, raw_reference)
 );
 
--- Reporting is "what moved, and when" — cash available now, and the slice of it
--- owed as tax — so both reads are date-ordered, one of them per category.
+-- Reporting is "what moved, and when" — the monthly summary buckets by date, and
+-- the bank's own categories are how spending is browsed — so both reads are
+-- date-ordered, one of them per category.
 CREATE INDEX IF NOT EXISTS transactions_date_idx     ON transactions (transaction_date);
 CREATE INDEX IF NOT EXISTS transactions_category_idx ON transactions (category, transaction_date);
 
