@@ -4,12 +4,13 @@ The production catalogue, checkout/orders, mailing list, and page-visit metrics
 live in Supabase. The offline `dev` build never touches it — it seeds the same
 catalogue data from `ui/demo.js`.
 
-The schema is **three migrations**: `db/001_catalog.sql` for the public,
+The schema is **four migrations**: `db/001_catalog.sql` for the public,
 read-only product catalogue, `db/002_sessions.sql` for everything the site
 writes — `sessions` (the hub) plus every table that references it (`orders`,
-`subscriptions`, `page_visits`) and the shared `rate_limits` — and
-`db/003_transactions.sql` for the bank ledger, which the site never touches at
-all (see *Bank transactions* below).
+`subscriptions`, `page_visits`) and the shared `rate_limits` — and, for the
+books, which the site never touches at all, `db/003_transactions.sql` (the bank
+ledger) and `db/004_monthly_aggregations.sql` (the month-by-month summary
+derived from it). See *Bank transactions* and *Monthly aggregations* below.
 
 ## Sessions (the hub)
 
@@ -289,6 +290,107 @@ which reads both AES- and RC4-encrypted statements.
 
 Nothing here is given a service-role key: the machine running the import holds
 only `IMPORT_TOKEN`, which can do exactly one thing — append statement rows.
+
+## Monthly aggregations
+
+`transactions` answers *what moved*. **`monthly_aggregations`** answers *what to
+do with it*: one row per calendar month holding the month's income, the three
+buckets that income is split into, and the month's deductible spending.
+
+| column | meaning |
+| --- | --- |
+| `month` | first day of the month (the primary key) |
+| `income` | the month's credits that count as income |
+| `pre_deduction` | **PD** — 10% of `income`, set aside before anything else |
+| `expendable_income` | **EI** — 40% of `income` |
+| `non_expendable_income` | **NEI** — 50% of `income` |
+| `business_expenses` | the month's tax-deductible spending, as a positive total |
+| `transaction_count` | every transaction in the month, classified or not — how you tell "no income" from "never imported" |
+
+PD, EI and NEI are **generated columns**, not stored numbers: they are by
+definition functions of `income`, so deriving them in the schema is what stops
+them drifting from it, and they cannot be written to. NEI is computed as the
+remainder (`income - PD - EI`) rather than a second `round()`, because at
+10/40/50 the three shares have to add back to `income` exactly and rounding each
+one independently can leave a stray cent (income `100.05` → `10.01 + 40.02 +
+50.03` = `100.06`). The remainder absorbs it into the largest share.
+
+Because the rates live in the column expressions, changing one is an
+`ALTER TABLE` that recomputes **every** month, history included. That is right
+for a rule the owner sets, but it does mean a month cannot be pinned to the rate
+that was in force at the time.
+
+### Classification — what counts as income, what counts as deductible
+
+The statement cannot tell you: a transfer in from savings is a credit but not
+income, and an owner draw is a debit but not a business expense. So each
+transaction is resolved three ways, most specific first:
+
+1. the transaction's own **override** — `transactions.counts_as_income` /
+   `transactions.tax_deductible`, both nullable and normally `NULL`;
+2. the rule for its **bank category** in **`transaction_categories`**, matched
+   case-insensitively against `transactions.category`;
+3. the **default** — a credit *is* income, a debit *is* deductible.
+
+Defaulting to "in, unless excluded" in both directions suits a business account:
+money arriving is income and money leaving is a business cost, with a short,
+nameable list of exceptions. It also means the aggregations are complete from the
+very first import instead of reading zero until everything has been classified —
+they start broad and tighten as exceptions get named.
+
+So the normal workflow is to name categories as you meet them:
+
+```sql
+INSERT INTO transaction_categories (category, counts_as_income, tax_deductible, note)
+VALUES ('Transfer', FALSE, FALSE, 'own-account movement / owner draw');
+```
+
+and to reach for an override only where a category is too blunt — one personal
+purchase from a shop you otherwise buy supplies at, say, which cannot be carved
+out by category because the category comes from the bank:
+
+```sql
+UPDATE transactions SET tax_deductible = FALSE WHERE id = 123;
+```
+
+### How it stays current
+
+Nothing has to be run after an import. **`db/004_monthly_aggregations.sql`** puts
+statement-level triggers on `transactions` (insert / update / delete / truncate)
+that recompute exactly the months the statement touched — including *both* months
+when a transaction's date moves across a month boundary — and a trigger on
+`transaction_categories` that rebuilds everything, since reclassifying a category
+rewrites history.
+
+They are **statement**-level rather than row-level on purpose: an import writes a
+whole statement in one `INSERT`, and a row-level trigger would recompute the same
+month once per row. A re-imported statement where every row already exists
+inserts nothing and therefore refreshes nothing.
+
+The whole maintenance path is one idempotent function, so a rebuild by hand is
+the same code the triggers run:
+
+```sql
+SELECT refresh_monthly_aggregations();                      -- every month
+SELECT refresh_monthly_aggregations(ARRAY['2026-01-01'::date]);  -- just January
+```
+
+It both upserts months that have transactions and deletes months that no longer
+do, so removing the last transaction in a month removes its row rather than
+leaving a stale one behind.
+
+### Setup
+
+1. **Run the migration** — paste `db/004_monthly_aggregations.sql` into the SQL
+   editor (or `supabase db push`), after `db/003_transactions.sql`. Idempotent,
+   and it ends by backfilling every month already in the ledger, so an existing
+   ledger is summarised the moment it runs.
+2. **Classify as needed** — nothing is required up front; add
+   `transaction_categories` rows as you find categories that should not count.
+
+Both tables are RLS on with no policies, like the ledger they are derived from.
+There is no edge function and no import path: the site never touches them, and
+the owner reads them from the dashboard.
 
 ## Mailing-list subscriptions
 
