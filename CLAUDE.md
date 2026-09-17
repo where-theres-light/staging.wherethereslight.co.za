@@ -37,6 +37,34 @@ Each build writes a `robots.txt` so only the live site is indexed. `prd` ships
 to keep staging out of search results. The two source files are copied to
 `dist/robots.txt` by the matching target, so the source variants never ship.
 
+### On-page SEO
+
+Search engines are served from the **live catalogue at run time**, not from
+anything the build knows. One `product.html` renders every piece, keyed by
+`?piece=<id>`, and its `describe()` sets that piece's `<title>`, meta
+description, canonical, Open Graph tags and `Product`/`VisualArtwork` +
+`BreadcrumbList` JSON-LD from the catalogue once it has loaded; the JSON-LD
+`offers` are patched in after the options are priced. Google indexes distinct
+query strings as distinct pages, so each piece can rank on its own.
+
+Nothing about a piece is snapshotted into the build. A town added to the
+catalogue describes itself on the next page view, with no redeploy and no
+second copy of the catalogue to keep in step. The cost is that this metadata
+exists only in the rendered DOM — a crawler that does not run JavaScript sees
+the generic head this page ships with.
+
+The rest is static per page: every source page carries its own `<title>`, meta
+description, canonical, `author`, `theme-color`, Open Graph/Twitter tags,
+favicon and `lang="en-ZA"`. `success`/`cancel` are `noindex`. The home page
+carries `Organization`/`WebSite` JSON-LD and the collection pages carry
+`BreadcrumbList`.
+
+**No page copy lives here.** The collection pages' eyebrow, `<h1>` and intro
+ship with the same words `shared.js` would write in, so the subject is in the
+HTML before any script runs — but site copy belongs to the Google Doc that
+`.claude/skills/copy-sync` syncs from. If a page needs new words, they go
+through that.
+
 `prd` also generates a `sitemap.xml` (and its `robots.txt` links to it): the
 `prd` target emits `dist/sitemap.xml` from the `SITEMAP_PAGES` list — the
 indexable content pages, stamping each `lastmod` from the page's last git commit
@@ -102,7 +130,8 @@ identical for both builds. What differs is who fills that key:
 
 So the source of truth flips by build: **DB table in `prd`, `localStorage`
 (seeded by `demo.js`) in `dev`**. `demo.js` is dev-only — it is neither copied
-into nor referenced by the `prd` build.
+into nor referenced by the `prd` build, and nothing in the build reads it. It is
+a preview seed, not a second source of truth, so it is free to lag the table.
 
 ### Product data model
 

@@ -1,9 +1,22 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-ZA">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Where There's Light — Townscape</title>
+<meta name="description" content="A hand-drawn townscape by Laurita le Roux, available as a one-of-a-kind original artwork or an archival fine-art print.">
+<meta name="author" content="Laurita le Roux">
+<meta name="theme-color" content="#2D3644">
+<meta property="og:type" content="product">
+<meta property="og:site_name" content="Where There's Light">
+<meta property="og:locale" content="en_ZA">
+<meta property="og:title" content="Where There's Light — Townscape">
+<meta property="og:description" content="A hand-drawn townscape by Laurita le Roux, available as a one-of-a-kind original artwork or an archival fine-art print.">
+<meta property="og:url" content="https://wherethereslight.co.za/product.html">
+<meta property="og:image" content="https://wherethereslight.co.za/assets/swellendam-small.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="styles.css">
 <style>
   .crumbs{padding:26px 0 0;font-size:.82rem;letter-spacing:.04em;color:var(--ink-soft);}
@@ -179,18 +192,92 @@
 
 <script src="shared.js"></script>
 <script>
+/* ---------- Page metadata ----------
+   One product.html serves the whole catalogue, so its head has to name the
+   piece the visitor actually asked for. Every value below is derived from the
+   live catalogue at run time — nothing about a piece is baked into the build,
+   so a town added to the catalogue describes itself without a redeploy. */
+const SITE='https://wherethereslight.co.za';
+function headTag(sel, make){
+  let el=document.head.querySelector(sel);
+  if(!el){ el=make(); document.head.appendChild(el); }
+  return el;
+}
+const metaTag=(attr,name)=>headTag(`meta[${attr}="${name}"]`,()=>{
+  const m=document.createElement('meta'); m.setAttribute(attr,name); return m;
+});
+
+function describe(piece){
+  const amelias=piece.cat==='amelias';
+  const title=amelias
+    ? `${piece.title} — Miniature Interior Illustration | Where There's Light`
+    : `${piece.title} Art — Hand-drawn Townscape Print & Original | Where There's Light`;
+  const desc=piece.blurb || (amelias
+    ? `${piece.title} — a miniature interior illustration from Amelia's House by Laurita le Roux.`
+    : `${piece.title} townscape art — an original pen-and-ink drawing of ${piece.title}, ${piece.place}, by Laurita le Roux.`);
+  const url=`${SITE}/product.html?piece=${encodeURIComponent(piece.id)}`;
+  const img=`${SITE}/${piece.large||piece.img}`;
+
+  document.title=title;
+  metaTag('name','description').setAttribute('content',desc);
+  headTag('link[rel="canonical"]',()=>{
+    const l=document.createElement('link'); l.rel='canonical'; return l;
+  }).setAttribute('href',url);
+  metaTag('property','og:title').setAttribute('content',title);
+  metaTag('property','og:description').setAttribute('content',desc);
+  metaTag('property','og:url').setAttribute('content',url);
+  metaTag('property','og:image').setAttribute('content',img);
+
+  /* Identity now; `offers` is patched in below once the options are priced. */
+  const ld={
+    '@context':'https://schema.org',
+    '@type':['Product','VisualArtwork'],
+    name:piece.title, url, image:img, description:desc,
+    artform:'Pen and ink drawing',
+    artMedium:'Archival pen on Fabriano cold-pressed paper',
+    artworkSurface:'Paper', inLanguage:'en-ZA',
+    creator:{'@type':'Person','@id':SITE+'/#laurita',name:'Laurita le Roux'},
+    brand:{'@type':'Brand',name:"Where There's Light"},
+    isPartOf:{'@type':'CollectionPage',
+      name:amelias?"Amelia's House":'Townscapes',
+      url:`${SITE}/${amelias?'amelias-house':'townscapes'}.html`}
+  };
+  if(!amelias && piece.place) ld.locationCreated={'@type':'Place',name:piece.place};
+  if(piece.year) ld.dateCreated=String(piece.year);
+  if(piece.size) ld.size=piece.size;
+
+  const crumbs={'@context':'https://schema.org','@type':'BreadcrumbList',itemListElement:[
+    {'@type':'ListItem',position:1,name:'Home',item:SITE+'/'},
+    {'@type':'ListItem',position:2,
+      name:amelias?"Amelia's House":'Townscapes',
+      item:`${SITE}/${amelias?'amelias-house':'townscapes'}.html`},
+    {'@type':'ListItem',position:3,name:piece.title,item:url}
+  ]};
+
+  const put=(id,obj)=>{
+    const el=headTag(`script#${id}`,()=>{
+      const t=document.createElement('script'); t.type='application/ld+json'; t.id=id; return t;
+    });
+    el.textContent=JSON.stringify(obj);
+  };
+  put('pieceLd',ld);
+  put('crumbLd',crumbs);
+}
+
 withCatalog(()=>{
   const params=new URLSearchParams(location.search);
   const piece=byId(params.get('piece')) || CATALOG[0];
   let selected=null;
 
-  document.title=`${piece.title} — Where There's Light`;
+  describe(piece);
   document.getElementById('crumbHere').textContent=piece.title;
   const crumbCollection=document.getElementById('crumbCollection');
   if(piece.cat==='amelias'){ crumbCollection.href='amelias-house.html'; crumbCollection.textContent="Amelia's House"; }
   else{ crumbCollection.href='townscapes.html'; crumbCollection.textContent='Townscapes'; }
   document.getElementById('pImg').src=piece.large||piece.img;
-  document.getElementById('pImg').alt=`${piece.title} townscape by Laurita`;
+  document.getElementById('pImg').alt = piece.cat==='amelias'
+    ? `${piece.title} — miniature interior illustration by Laurita le Roux`
+    : `${piece.title} townscape — hand-drawn town art by Laurita le Roux`;
   document.getElementById('pTitle').textContent=piece.title;
   document.getElementById('pPlace').textContent=piece.place;
   document.getElementById('pEyebrow').textContent = piece.cat==='amelias' ? "Amelia's House · miniature interior" : 'Hand-drawn townscape';
@@ -236,10 +323,26 @@ withCatalog(()=>{
   }
   document.getElementById('addBtn').onclick=addToCart;
 
+  /* Prices are authoritative in the catalogue, so the offers are added once the
+     options have been priced rather than described up front. */
+  const ldEl=document.getElementById('pieceLd');
+  if(ldEl){
+    try{
+      const ld=JSON.parse(ldEl.textContent);
+      ld.offers=opts.filter(o=>o.price!=null).map(o=>({
+        '@type':'Offer', name:o.name, price:String(o.price), priceCurrency:'ZAR',
+        availability:o.sold?'https://schema.org/SoldOut':'https://schema.org/InStock',
+        url:location.origin+location.pathname,
+        seller:{'@type':'Organization',name:"Where There's Light"}
+      }));
+      ldEl.textContent=JSON.stringify(ld);
+    }catch(e){}
+  }
+
   // more from collection (exclude current)
   document.getElementById('moreStrip').innerHTML=CATALOG.filter(p=>p.id!==piece.id).slice(0,4).map(p=>`
     <figure><a href="product.html?piece=${p.id}">
-      <div class="mat"><img src="${p.img}" alt="${p.title}" loading="lazy"></div>
+      <div class="mat"><img src="${p.img}" alt="${p.title} — hand-drawn art by Laurita le Roux" loading="lazy"></div>
       <div class="nm">${p.title}</div><div class="pl2">${p.place}</div>
     </a></figure>`).join('');
 });

@@ -117,7 +117,6 @@ function renderCollection(cat, mountId){
   const eb=document.getElementById('collEyebrow'); if(eb) eb.textContent=meta.eyebrow||'';
   const tt=document.getElementById('collTitle'); if(tt) tt.textContent=meta.title||'The Collection';
   const intro=document.getElementById('collIntro'); if(intro) intro.textContent=meta.intro||'';
-  document.title=`${meta.title||'The Collection'} — Where There's Light`;
   const mount=document.getElementById(mountId); if(!mount) return;
   if(!items.length){
     mount.className='';
@@ -130,7 +129,10 @@ function renderCollection(cat, mountId){
     const pricing = `<div class="from">from ${ZAR(p.fromPrint)}</div>` + (p.original.status==='sold'
       ? '<span class="sold">Original sold</span>'
       : `<div class="amt">${ZAR(p.original.price)}</div>`);
-    return `<figure class="piece${feature}"><a href="product.html?piece=${p.id}"><div class="mat"><div class="imgwrap"><img src="${p.img}" alt="${p.title} townscape" loading="lazy"></div></div><figcaption class="cap"><div><div class="ttl">${p.title}</div><div class="place">${p.place}</div></div><div class="pricing">${pricing}</div></figcaption></a></figure>`;
+    const alt = p.cat==='amelias'
+      ? `${p.title} — miniature interior illustration by Laurita le Roux`
+      : `${p.title} townscape — hand-drawn town art by Laurita le Roux`;
+    return `<figure class="piece${feature}"><a href="product.html?piece=${p.id}"><div class="mat"><div class="imgwrap"><img src="${p.img}" alt="${alt}" loading="lazy"></div></div><figcaption class="cap"><div><div class="ttl">${p.title}</div><div class="place">${p.place}</div></div><div class="pricing">${pricing}</div></figcaption></a></figure>`;
   }).join('');
 }
 
