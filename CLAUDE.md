@@ -47,13 +47,21 @@ engine a single title and description for every town; with it, "<town> art"
 has a page of its own to match.
 
 The generator stamps **`dist/product.html`** (never a copy of it) with each
-piece's `<title>`, meta description, canonical, Open Graph tags, JSON-LD and
-static copy, so the page chrome can never drift from the real product page. It
-also splices the plain-text piece index into `dist/townscapes.html` and
-`dist/amelias-house.html` at their `<!--piece-index-->` markers. `product.html`
-stays as a `noindex,follow` fallback for old query-string links; its head block
-is fenced with `<!--seo--> … <!--/seo-->`, which is the range the generator
+piece's `<title>`, meta description, canonical, Open Graph tags and JSON-LD, so
+the page chrome can never drift from the real product page. `product.html` stays
+as a `noindex,follow` fallback for old query-string links; its head block is
+fenced with `<!--seo--> … <!--/seo-->`, which is the range the generator
 replaces.
+
+**It writes no site copy.** Every word a visitor reads on a generated page is
+already in the catalogue — the piece's title, place and blurb, the same ones
+`product.html` renders — only pre-filled into the markup instead of written in
+by script. Page copy belongs to the Google Doc that `.claude/skills/copy-sync`
+syncs from; if a page needs new words, they go through that, not through here.
+
+Crawlers reach the generated pages two ways: `sitemap.xml` lists them all, and
+the collection grid `shared.js` renders links straight at them. There is no
+static list of pieces on the collection pages — adding one would be new copy.
 
 Piece metadata (titles, places, blurbs, images) is read from `ui/demo.js` at
 **build** time — the in-repo mirror of the catalogue tables. **No price is ever
