@@ -132,7 +132,7 @@ function renderCollection(cat, mountId){
     const alt = p.cat==='amelias'
       ? `${p.title} — miniature interior illustration by Laurita le Roux`
       : `${p.title} townscape — hand-drawn town art by Laurita le Roux`;
-    return `<figure class="piece${feature}"><a href="${p.id}-art.html"><div class="mat"><div class="imgwrap"><img src="${p.img}" alt="${alt}" loading="lazy"></div></div><figcaption class="cap"><div><div class="ttl">${p.title}</div><div class="place">${p.place}</div></div><div class="pricing">${pricing}</div></figcaption></a></figure>`;
+    return `<figure class="piece${feature}"><a href="product.html?piece=${p.id}"><div class="mat"><div class="imgwrap"><img src="${p.img}" alt="${alt}" loading="lazy"></div></div><figcaption class="cap"><div><div class="ttl">${p.title}</div><div class="place">${p.place}</div></div><div class="pricing">${pricing}</div></figcaption></a></figure>`;
   }).join('');
 }
 

@@ -37,41 +37,33 @@ Each build writes a `robots.txt` so only the live site is indexed. `prd` ships
 to keep staging out of search results. The two source files are copied to
 `dist/robots.txt` by the matching target, so the source variants never ship.
 
-### Per-piece pages & on-page SEO
+### On-page SEO
 
-Every catalogue piece gets its own indexable page, `<id>-art.html` (for example
-`swellendam-art.html`), generated into `dist/` by **`make/seo-pages.js`** during
-the `stage` step — so `dev`, `stg` and `prd` all carry them. Without this the
-whole catalogue shares one `product.html?piece=…` URL, which gives a search
-engine a single title and description for every town; with it, "<town> art"
-has a page of its own to match.
+Search engines are served from the **live catalogue at run time**, not from
+anything the build knows. One `product.html` renders every piece, keyed by
+`?piece=<id>`, and its `describe()` sets that piece's `<title>`, meta
+description, canonical, Open Graph tags and `Product`/`VisualArtwork` +
+`BreadcrumbList` JSON-LD from the catalogue once it has loaded; the JSON-LD
+`offers` are patched in after the options are priced. Google indexes distinct
+query strings as distinct pages, so each piece can rank on its own.
 
-The generator stamps **`dist/product.html`** (never a copy of it) with each
-piece's `<title>`, meta description, canonical, Open Graph tags and JSON-LD, so
-the page chrome can never drift from the real product page. `product.html` stays
-as a `noindex,follow` fallback for old query-string links; its head block is
-fenced with `<!--seo--> … <!--/seo-->`, which is the range the generator
-replaces.
+Nothing about a piece is snapshotted into the build. A town added to the
+catalogue describes itself on the next page view, with no redeploy and no
+second copy of the catalogue to keep in step. The cost is that this metadata
+exists only in the rendered DOM — a crawler that does not run JavaScript sees
+the generic head this page ships with.
 
-**It writes no site copy.** Every word a visitor reads on a generated page is
-already in the catalogue — the piece's title, place and blurb, the same ones
-`product.html` renders — only pre-filled into the markup instead of written in
-by script. Page copy belongs to the Google Doc that `.claude/skills/copy-sync`
-syncs from; if a page needs new words, they go through that, not through here.
+The rest is static per page: every source page carries its own `<title>`, meta
+description, canonical, `author`, `theme-color`, Open Graph/Twitter tags,
+favicon and `lang="en-ZA"`. `success`/`cancel` are `noindex`. The home page
+carries `Organization`/`WebSite` JSON-LD and the collection pages carry
+`BreadcrumbList`.
 
-Crawlers reach the generated pages two ways: `sitemap.xml` lists them all, and
-the collection grid `shared.js` renders links straight at them. There is no
-static list of pieces on the collection pages — adding one would be new copy.
-
-Piece metadata (titles, places, blurbs, images) is read from `ui/demo.js` at
-**build** time — the in-repo mirror of the catalogue tables. **No price is ever
-baked into the output**: the generated page fills its prices, and its JSON-LD
-`offers`, from the live catalogue at run time, so prices stay authoritative in
-the back-end. `demo.js` itself is still copied into `dev` only.
-
-The generator needs `node`. `dev`/`stg` warn and carry on without it (a local
-preview still works); `prd` fails the build if the pages are missing, and lists
-every `*-art.html` in `sitemap.xml`.
+**No page copy lives here.** The collection pages' eyebrow, `<h1>` and intro
+ship with the same words `shared.js` would write in, so the subject is in the
+HTML before any script runs — but site copy belongs to the Google Doc that
+`.claude/skills/copy-sync` syncs from. If a page needs new words, they go
+through that.
 
 `prd` also generates a `sitemap.xml` (and its `robots.txt` links to it): the
 `prd` target emits `dist/sitemap.xml` from the `SITEMAP_PAGES` list — the
@@ -106,9 +98,6 @@ clean.
   **map file** and, for each placeholder token it finds in the source, splices
   in the contents of the mapped file (preserving indentation). The `Makefile`
   `include`s this.
-- **`make/seo-pages.js`** generates the per-piece `<id>-art.html` pages (see
-  *Per-piece pages & on-page SEO* above). It is the one part of the site build
-  that needs `node`.
 - **`make/web.map`** is the placeholder map: lines of `{{token}}:path/to/file`.
   For example a `{{…-css}}` placeholder in the source HTML is replaced by the
   matching CSS file at build time.
@@ -140,12 +129,9 @@ identical for both builds. What differs is who fills that key:
   pages carry no `demo.js` tag — it exists only in the composed `dev` output.
 
 So the source of truth flips by build: **DB table in `prd`, `localStorage`
-(seeded by `demo.js`) in `dev`**. `demo.js` is dev-only at *run* time — it is
-neither copied into nor referenced by the `prd` build. It is, however, read by
-`make/seo-pages.js` at *build* time in every build, as the in-repo mirror of the
-catalogue's descriptive fields; prices are excluded there and still come from
-the DB at run time. Keep `demo.js` in step with the table for titles, places,
-blurbs and images, or the generated pages' metadata will drift.
+(seeded by `demo.js`) in `dev`**. `demo.js` is dev-only — it is neither copied
+into nor referenced by the `prd` build, and nothing in the build reads it. It is
+a preview seed, not a second source of truth, so it is free to lag the table.
 
 ### Product data model
 
