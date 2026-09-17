@@ -257,4 +257,3 @@ p{margin:0 0 1em;}
 .tag-card .add:hover{background:var(--green);color:var(--paper);}
 @media(max-width:900px){.tag-grid{grid-template-columns:repeat(3,1fr);}}
 @media(max-width:560px){.tag-grid{grid-template-columns:1fr 1fr;}.tag-card{padding-left:6px;padding-right:6px;}}
-
