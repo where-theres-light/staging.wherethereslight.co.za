@@ -239,11 +239,12 @@ rows — no statement fixture, so the tests carry no real data.
 
 ### Using it
 
-Statements go in `data/statements/`, which is **git-ignored** — a bank statement
-must never be committed. The password (Capitec uses the last four digits of the
-registered mobile number) is read from an environment variable, never an
-argument, so it stays out of shell history; leave it unset for an unencrypted
-statement.
+Statements are downloaded from the **`Account` folder shared on Google Drive**
+(where the statement PDFs now live) into `data/statements/`, which is
+**git-ignored** — a bank statement must never be committed. The password
+(Capitec uses the last four digits of the registered mobile number) is read from
+an environment variable, never an argument, so it stays out of shell history;
+leave it unset for an unencrypted statement.
 
 ```bash
 cd scripts/import-statement
