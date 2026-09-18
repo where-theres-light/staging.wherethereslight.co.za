@@ -164,11 +164,14 @@ Standalone **Go** programs that are not part of the site build and never ship in
 - **`scripts/import-statement/`** — parses a Capitec bank-statement PDF and
   imports its transactions into the `transactions` table, through the
   `import-transactions` edge function (the table is service-role only, so the
-  program never holds a Supabase key). With `--invoices <dir>` it also reads the
-  supplier invoices that go with the statement — by **Claude**, since an invoice's
-  layout changes from company to company — ties each to a payment of exactly its
-  total, and posts the matches as `business_expenses` claims in the same request.
-  See *Bank transactions* in `supabase/README.md`.
+  program never holds a Supabase key). With `--invoices <dir>` it also claims the
+  supplier invoices that go with the statement, in two steps: `--prepare` writes a
+  worksheet of every invoice's text for a Claude Code session (or a person) to
+  read, and `--readings` takes the filled-in records back, ties each to a payment
+  of exactly its total, and posts the matches as `business_expenses` claims in the
+  same request. Reading an invoice is a judgement — the layout changes from
+  company to company — so the program does not make it; matching is all it
+  decides. No API, no key. See *Bank transactions* in `supabase/README.md`.
 
 Go rather than Deno because the statement table is read by **column position**
 rather than by splitting text, which needs the x coordinate of every fragment —

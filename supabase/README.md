@@ -237,32 +237,66 @@ balance yet, and they arrive again as real rows on the next statement.
 `go test ./scripts/import-statement/` covers the column logic with synthetic
 rows — no statement fixture, so the tests carry no real data.
 
-### Invoices — read by Claude, matched to a payment
+### Invoices — read in two steps, matched to a payment
 
 A statement row says money left the account; it never says what for. That is what
 the supplier's invoice carries, and it is what a deduction cannot be defended
-without — see *Business expenses* under *Monthly aggregations* below. Pass
-`--invoices <dir>` and the folder is read alongside the statement.
+without — see *Business expenses* under *Monthly aggregations* below.
 
-Invoices are read by **Claude** rather than parsed, which is the opposite choice
-to the statement next door and for the opposite reason. The statement is one
-bank's fixed layout, so its columns can be read by position and checked against
-the printed balance chain. An invoice is whatever the supplier's software prints
-— a table, a letterhead, a photo of a till slip — so there is nothing for a
-parser to lock onto and no second figure to check it against. The model fills in
-one strict schema per document (total, currency, date, supplier, what was bought,
-invoice number, a rough expense type), and `invoice.go` believes it no further
-than that: a file it reports as something other than an invoice, or that comes
-back without a total, a date or a description of what was bought, is reported and
-skipped.
+Invoices are **not parsed**, which is the opposite choice to the statement next
+door and for the opposite reason. The statement is one bank's fixed layout, so
+its columns can be read by position and checked against the printed balance
+chain. An invoice is whatever the supplier's software prints — a table, a
+letterhead, a photo of a till slip — and there is no second figure to check it
+against, so there is nothing for a parser to lock onto. Reading one is a
+judgement, and the importer does not make it.
 
-What comes back is therefore **unverified** in a way the parsed statement never
-is. That is what the match is for.
+So the job splits in half, with the reader in between:
 
-Note what this sends where: the invoice file itself is uploaded to the Anthropic
-API — that is how a photographed till slip reads the same as a digital invoice —
-so a supplier's document leaves the machine. The bank statement never does: it
-is parsed locally, as before, and only `--invoices` reaches the API at all.
+```bash
+# 1. Write the worksheet: every invoice's text, with the statement's payments.
+go run . --invoices ../../data/invoices --prepare sheet.json statement.pdf
+
+# 2. Something reads it and writes the readings (below).
+
+# 3. Import the statement, claiming what the readings can be matched to.
+go run . --invoices ../../data/invoices --readings readings.json statement.pdf
+```
+
+**The worksheet** (`--prepare`) carries, per file, the text laid out as the PDF
+lays it out — the same reader the statement uses, so nothing extra is installed
+— or `needs_image: true` when there was no text to pull out, which is a
+photograph or a scan with no text layer. It also carries a `reading_template`, a
+`how_to_fill` note, and the statement's payments for context. It writes nothing
+to the ledger.
+
+**The readings** are one filled-in record per invoice: total, currency, invoice
+date, supplier, what was bought, invoice number, expense type.
+
+```json
+{ "invoices": [ {
+  "file": "orms-1041.pdf", "is_invoice": true, "total": 588.00, "currency": "ZAR",
+  "invoice_date": "2026-09-02", "supplier": "Orms Pty Ltd",
+  "purpose": "A2 canvas prints × 3", "invoice_number": "INV-1041",
+  "expense_type": "materials"
+} ] }
+```
+
+A **Claude Code session** with the folder open is what the worksheet is built
+for: it reads the text, opens the files flagged `needs_image`, and writes the
+readings. A person with a text editor works exactly as well. Either way nothing
+here calls an API, holds a key, or sends an invoice anywhere — the invoices and
+the statement both stay on the machine.
+
+The readings are checked rather than trusted. A record naming a file that is not
+in the folder, or naming one twice, or carrying a misspelt field, is refused
+outright; one without a total, a date or a description of what was bought is
+reported and skipped, as is a total in a currency other than rands. An invoice in
+the folder with **no reading at all** is reported too — it would otherwise go
+quietly unclaimed, which is the kind of thing nobody notices until tax time.
+
+What a reading says is still **unverified** in a way the parsed statement never
+is, however careful the reader was. That is what the match is for.
 
 #### The match is the check
 
@@ -283,8 +317,11 @@ So a misread total matches nothing and is printed rather than filed. That is the
 whole safeguard, and it is why the amount is matched to the cent: a wrong claim
 is invisible once it is in the books, an unclaimed invoice is not.
 
-It is also why this is one command and not two — the payments an invoice is
-matched against are the ones the statement scan has just produced.
+The matching is in Go, from the amounts and dates alone, and whoever read the
+invoices gets no say in it: they write down what a document says, and the ledger
+decides whether a payment agrees. It is also why claiming belongs to this command
+rather than a separate one — the payments an invoice is matched against are the
+ones the statement scan has just produced.
 
 #### What gets written
 
@@ -304,7 +341,7 @@ apportioned by hand. `proof_url` is left `NULL` too, since the scan stays in the
 Drive folder; `note` records which file it was.
 
 `go test ./scripts/import-statement/` covers the matching rules with synthetic
-invoices and rows. Nothing in the tests calls the API.
+invoices and rows, and the readings file with every way it can be wrong.
 
 ### Using it
 
@@ -327,10 +364,10 @@ export IMPORT_TOKEN=…            # the function secret, below
 export STATEMENT_PASSWORD=…      # only if the PDF is encrypted
 go run . ../../data/statements/account_statement.pdf
 
-# With the invoices that go with it. --dry-run prints every match first.
-export ANTHROPIC_API_KEY=…       # what reads the invoices
-go run . --dry-run --invoices ../../data/invoices ../../data/statements/account_statement.pdf
-go run .           --invoices ../../data/invoices ../../data/statements/account_statement.pdf
+# With the invoices that go with it — see Invoices above for the middle step.
+go run . --invoices ../../data/invoices --prepare  sheet.json    ../../data/statements/account_statement.pdf
+go run . --invoices ../../data/invoices --readings readings.json ../../data/statements/account_statement.pdf --dry-run
+go run . --invoices ../../data/invoices --readings readings.json ../../data/statements/account_statement.pdf
 ```
 
 `go build -o import-statement .` gives a standalone binary instead, which needs
@@ -341,12 +378,10 @@ the summary boxes printed on page 1 — the quickest way to confirm a clean pars
 — and then `inserted` / `skipped`.
 
 `--source NAME` overrides the `source_statement` label (it defaults to the
-filename); `--password-env VAR` reads the password from a different variable;
-`--match-window N` widens or narrows how far an invoice may sit from its payment,
-and `--model` picks the model that reads the invoices. The dependencies are
-`github.com/ledongthuc/pdf` (BSD, no transitive deps), which reads both AES- and
-RC4-encrypted statements, and `github.com/anthropics/anthropic-sdk-go`, which is
-only reached with `--invoices`.
+filename); `--password-env VAR` reads the password from a different variable; and
+`--match-window N` widens or narrows how far an invoice may sit from its payment.
+The only dependency is `github.com/ledongthuc/pdf` (BSD, no transitive deps),
+which reads both AES- and RC4-encrypted statements, and reads the invoices too.
 
 ### Setup
 

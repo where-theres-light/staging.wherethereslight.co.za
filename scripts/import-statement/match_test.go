@@ -191,23 +191,3 @@ func TestPayloadCarriesTheInvoiceAndItsPaymentsKey(t *testing.T) {
 		t.Errorf("note = %q, want the invoice's filename", got.Note)
 	}
 }
-
-func TestIncompleteInvoicesAreNotClaimable(t *testing.T) {
-	cases := map[string]Invoice{
-		"no total":    {Total: 0, Purpose: "prints", Date: "2026-09-02", Currency: "ZAR"},
-		"no purpose":  {Total: 10, Purpose: "", Date: "2026-09-02", Currency: "ZAR"},
-		"no date":     {Total: 10, Purpose: "prints", Date: "", Currency: "ZAR"},
-		"bad date":    {Total: 10, Purpose: "prints", Date: "02/09/2026", Currency: "ZAR"},
-		"not in rand": {Total: 10, Purpose: "prints", Date: "2026-09-02", Currency: "USD"},
-	}
-	for name, inv := range cases {
-		if inv.incomplete() == "" {
-			t.Errorf("%s: expected the invoice to be rejected", name)
-		}
-	}
-
-	ok := Invoice{Total: 10, Purpose: "prints", Date: "2026-09-02", Currency: "ZAR"}
-	if problem := ok.incomplete(); problem != "" {
-		t.Errorf("expected a complete invoice to be claimable, got %q", problem)
-	}
-}

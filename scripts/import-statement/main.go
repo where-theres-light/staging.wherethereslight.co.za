@@ -4,7 +4,10 @@
 //	cd scripts/import-statement
 //	go run . --dry-run statement.pdf
 //	go run . statement.pdf
-//	go run . --invoices ../../data/invoices statement.pdf
+//
+//	# Invoices, in two steps with a reader in between (see invoice.go):
+//	go run . --invoices ../../data/invoices --prepare sheet.json statement.pdf
+//	go run . --invoices ../../data/invoices --readings read.json statement.pdf
 //
 // Reads the PDF locally, extracts the Transaction History table, and POSTs the
 // parsed rows to the import-transactions edge function, which writes them as
@@ -16,11 +19,12 @@
 // function upserts ON CONFLICT DO NOTHING against the natural key and reports
 // how many rows were new. Running the same statement twice inserts nothing.
 //
-// With --invoices, the folder's invoices are read by Claude (invoice.go), tied
-// to the payments this statement just parsed (match.go), and posted alongside
-// them as `business_expenses` claims. The two halves are one command because
-// the match needs both: an invoice is only ever claimed against a payment of
-// exactly its total, and the payments are what this program has just read.
+// With --invoices, the folder's invoices are prepared for reading and then, once
+// read, tied to the payments this statement parsed (match.go) and posted
+// alongside them as `business_expenses` claims. Claiming is part of this command
+// rather than its own because the match needs both halves: an invoice is only
+// ever claimed against a payment of exactly its total, and the payments are what
+// this program has just read off the statement.
 //
 // Environment:
 //
@@ -31,12 +35,10 @@
 //	                    registered mobile number. It is read from the
 //	                    environment and never taken as an argument, so it stays
 //	                    out of shell history.
-//	ANTHROPIC_API_KEY   required with --invoices — it is what reads them.
 package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -71,9 +73,10 @@ func run() error {
 		dryRun      = flag.Bool("dry-run", false, "parse and reconcile only; print the rows, write nothing")
 		source      = flag.String("source", "", "override the source_statement label (default: the filename)")
 		passwordEnv = flag.String("password-env", "STATEMENT_PASSWORD", "environment variable holding the PDF password")
-		invoiceDir  = flag.String("invoices", "", "folder of supplier invoices to read and claim against these payments")
+		invoiceDir  = flag.String("invoices", "", "folder of supplier invoices to prepare or claim")
+		prepare     = flag.String("prepare", "", "with --invoices: write the worksheet here for reading, and stop")
+		readings    = flag.String("readings", "", "with --invoices: the filled-in worksheet readings to claim from")
 		window      = flag.Int("match-window", defaultMatchWindow, "days either side of an invoice's date a payment may fall")
-		model       = flag.String("model", defaultModel, "the model that reads the invoices")
 	)
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: import-statement [flags] <statement.pdf>")
@@ -84,6 +87,14 @@ func run() error {
 	if flag.NArg() != 1 {
 		flag.Usage()
 		return errors.New("exactly one statement PDF is required")
+	}
+	switch {
+	case *prepare != "" && *readings != "":
+		return errors.New("--prepare writes the worksheet and --readings claims from it; do one at a time")
+	case *invoiceDir == "" && (*prepare != "" || *readings != ""):
+		return errors.New("--prepare and --readings need --invoices, the folder they are about")
+	case *invoiceDir != "" && *prepare == "" && *readings == "":
+		return errors.New("--invoices needs either --prepare (to write the worksheet) or --readings (to claim from it)")
 	}
 	path := flag.Arg(0)
 	sourceName := *source
@@ -117,13 +128,19 @@ func run() error {
 	fmt.Printf("  money out %.2f\n", in-net)
 	fmt.Printf("  net       %.2f\n", net)
 
-	// The invoices are read against the payments above, so this has to follow the
+	// Preparing the worksheet writes nothing to the ledger, so it ends here. The
+	// payments go into it for context, which is why it waits for the parse.
+	if *prepare != "" {
+		return prepareWorksheet(*prepare, *invoiceDir, sourceName, txs)
+	}
+
+	// Claims are matched against the payments above, so this has to follow the
 	// parse — and it runs before anything is written, so --dry-run shows exactly
 	// what an import would claim.
 	var claims []Claim
-	if *invoiceDir != "" {
+	if *readings != "" {
 		var err error
-		if claims, err = claimInvoices(context.Background(), *invoiceDir, *model, *window, txs); err != nil {
+		if claims, err = claimInvoices(*readings, *invoiceDir, *window, txs); err != nil {
 			return err
 		}
 	}
@@ -308,12 +325,16 @@ func postBatch(baseURL, token, source string, txs []Transaction, claims []Claim)
 // unrelated payments of the same amount rarely both land inside it.
 const defaultMatchWindow = 14
 
-// claimInvoices reads the invoice folder and ties each invoice to one of this
+// claimInvoices takes the filled-in readings and ties each invoice to one of this
 // statement's payments. Only what earned a match comes back; everything else is
 // reported and left for the owner, because a claim against the wrong payment is
 // worse than no claim — it is invisible once it is in the books.
-func claimInvoices(ctx context.Context, dir, model string, window int, txs []Transaction) ([]Claim, error) {
-	invoices, warnings, err := readInvoices(ctx, dir, model)
+//
+// The matching happens here, in Go, from the amounts and dates alone. Whoever
+// read the invoices does not get a say in it: they write down what a document
+// says, and the ledger decides whether a payment agrees.
+func claimInvoices(readings, dir string, window int, txs []Transaction) ([]Claim, error) {
+	invoices, warnings, err := loadReadings(readings, dir)
 	if err != nil {
 		return nil, err
 	}

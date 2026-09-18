@@ -1,46 +1,46 @@
 package main
 
-// Invoice reading.
+// Invoice reading — in two steps, with a reader in the middle.
 //
 // A statement row says money left the account; it never says what for. That is
-// what an invoice carries, and it is the thing a deduction cannot be defended
-// without (see `purpose` in db/004_monthly_aggregations.sql).
+// what the supplier's invoice carries, and it is the thing a deduction cannot be
+// defended without (see `purpose` in db/004_monthly_aggregations.sql).
 //
-// Invoices are read by CLAUDE rather than parsed, which is the opposite choice
-// to the statement next door. The statement is one bank's fixed layout, so its
-// columns can be read by position and checked against the balance chain. An
-// invoice is whatever the supplier's software prints — a table, a letterhead, a
-// photo of a till slip — and there is no second source to check it against, so
-// there is nothing for a parser to lock onto. The model reads each file and
-// fills in one strict schema.
+// Invoices are not parsed, which is the opposite choice to the statement next
+// door. The statement is one bank's fixed layout, so its columns can be read by
+// position and checked against the balance chain. An invoice is whatever the
+// supplier's software prints — a table, a letterhead, a photo of a till slip —
+// and there is no second source to check it against, so there is nothing for a
+// parser to lock onto. Reading one is a judgement, and this program does not
+// make it.
 //
-// What comes back is therefore UNVERIFIED in a way the statement never is. The
-// safeguard is the match in match.go: an invoice is only ever believed as far
-// as a real payment of the same amount, so a misread total matches nothing and
-// is reported rather than imported.
+// So it splits the job in half and leaves the judgement outside:
+//
+//	--prepare   writes a WORKSHEET: every invoice's text, laid out as the PDF
+//	            lays it out, with the statement's payments alongside it.
+//	--readings  takes back a READINGS file — one filled-in record per invoice —
+//	            and imports the claims it can place.
+//
+// In between, something reads the worksheet and fills in the readings: a Claude
+// Code session with the folder open is what this is built for, and a person with
+// a text editor works exactly as well. Nothing here calls an API, holds a key,
+// or sends an invoice anywhere.
+//
+// What comes back is therefore UNVERIFIED, however careful the reader was. The
+// safeguard is the match in match.go, which this file cannot influence: an
+// invoice is only ever believed as far as a real payment of the same amount, so
+// a misread total matches nothing and is reported rather than imported.
 
 import (
-	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/anthropics/anthropic-sdk-go"
 )
 
-// The model that reads the invoices. Overridable with --model.
-const defaultModel = "claude-opus-5"
-
-// Files bigger than this are skipped rather than sent. The API caps a request at
-// 32 MB and base64 adds a third, so this leaves ample room; anything larger is a
-// scan that wants downsampling, not an invoice.
-const maxInvoiceBytes = 12 << 20
-
-// Invoice is one supplier document, as the model read it.
+// Invoice is one supplier document, as it was read.
 type Invoice struct {
 	File string // the file it was read from, for the audit trail
 
@@ -54,73 +54,12 @@ type Invoice struct {
 	Type      string  // materials / packaging / postage / …
 }
 
-// The extraction schema. Strict, so the model's arguments are guaranteed to
-// validate against it — every field required, nullable where a document may
-// genuinely not carry it.
-var invoiceTool = anthropic.ToolParam{
-	Name: "record_invoice",
-	Description: anthropic.String(
-		"Record the details of one supplier invoice, receipt or till slip. " +
-			"Call this exactly once for the document provided."),
-	Strict: anthropic.Bool(true),
-	InputSchema: anthropic.ToolInputSchemaParam{
-		Properties: map[string]any{
-			"is_invoice": map[string]any{
-				"type": "boolean",
-				"description": "True if this document is an invoice, receipt, till slip or bill. " +
-					"False for anything else (a bank statement, a delivery note, a letter).",
-			},
-			"total": map[string]any{
-				"type": []string{"number", "null"},
-				"description": "The total amount payable, including VAT — the number the customer " +
-					"actually pays. Positive. Null if the document carries no total.",
-			},
-			"currency": map[string]any{
-				"type":        []string{"string", "null"},
-				"description": "The currency of the total, as a three-letter ISO code (ZAR, USD, EUR).",
-			},
-			"invoice_date": map[string]any{
-				"type": []string{"string", "null"},
-				"description": "The date the invoice was issued, as YYYY-MM-DD. Not the due date " +
-					"and not the payment date. South African documents write dates day-first.",
-			},
-			"supplier": map[string]any{
-				"type":        []string{"string", "null"},
-				"description": "The business that issued the invoice — who is being paid, not the customer.",
-			},
-			"purpose": map[string]any{
-				"type": []string{"string", "null"},
-				"description": "What was bought, in a short phrase built from the line items — " +
-					"e.g. 'A2 canvas prints × 3' or 'picture framing, 4 frames'. This is the " +
-					"record of what the money was for, so name the goods or service; do not " +
-					"repeat the supplier's name and do not describe the document.",
-			},
-			"invoice_number": map[string]any{
-				"type":        []string{"string", "null"},
-				"description": "The supplier's own invoice or receipt number, if printed.",
-			},
-			"expense_type": map[string]any{
-				"type": []string{"string", "null"},
-				"description": "A short category for grouping at tax time: materials, packaging, " +
-					"postage, printing, framing, studio rent, equipment, software, bank charges, travel.",
-			},
-		},
-		Required: []string{
-			"is_invoice", "total", "currency", "invoice_date",
-			"supplier", "purpose", "invoice_number", "expense_type",
-		},
-		ExtraFields: map[string]any{"additionalProperties": false},
-	},
-}
-
-const invoiceSystemPrompt = `You read supplier invoices for a small South African art business and record what each one says, by calling the record_invoice tool exactly once.
-
-Record only what the document actually shows. Never infer, round or complete a value that is not printed — a null is always better than a guess, because every field here ends up in a tax record. In particular, the total is the amount payable including VAT: where a document shows a subtotal, VAT and a total, take the total; where it shows amounts both due and already paid, take the amount of the document itself.`
-
-// The tool's arguments, as the model fills them in. Pointers for the nullable
-// fields, so "absent" and "empty" stay distinguishable.
-type invoiceArgs struct {
-	IsInvoice     bool     `json:"is_invoice"`
+// reading is one invoice as the readings file carries it. Separate from Invoice
+// so the file's shape is explicit, and pointers so a field left out is told
+// apart from one deliberately emptied.
+type reading struct {
+	File          string   `json:"file"`
+	IsInvoice     *bool    `json:"is_invoice"`
 	Total         *float64 `json:"total"`
 	Currency      *string  `json:"currency"`
 	InvoiceDate   *string  `json:"invoice_date"`
@@ -130,93 +69,266 @@ type invoiceArgs struct {
 	ExpenseType   *string  `json:"expense_type"`
 }
 
-func deref(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return strings.TrimSpace(*s)
+type readingsFile struct {
+	Invoices []reading `json:"invoices"`
 }
 
-// invoiceFiles lists the documents in dir, in a stable order. Non-recursive: a
-// folder of invoices is a flat folder, and recursing would sweep up whatever
-// else is filed alongside it.
-func invoiceFiles(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
+// ---------------------------------------------------------------------------
+// Step one: the worksheet.
+// ---------------------------------------------------------------------------
+
+// worksheet is what --prepare writes: everything needed to read the invoices,
+// and nothing that decides anything. The matching is not in here on purpose —
+// it stays in match.go, where the amount has to agree to the cent.
+type worksheet struct {
+	Statement     string          `json:"statement"`
+	InvoiceFolder string          `json:"invoice_folder"`
+	HowToFill     []string        `json:"how_to_fill"`
+	Template      reading         `json:"reading_template"`
+	Invoices      []worksheetItem `json:"invoices"`
+	Payments      []worksheetPay  `json:"payments"`
+}
+
+type worksheetItem struct {
+	File string `json:"file"`
+	Path string `json:"path"` // where to open it, when the text is not enough
+	Text string `json:"text,omitempty"`
+	// True when nothing could be pulled out of the file: a photograph, or a
+	// scan with no text layer. The file itself has to be looked at.
+	NeedsImage bool `json:"needs_image"`
+}
+
+// worksheetPay is one payment from the statement, for context only. Reading an
+// invoice is easier with the payments in view — a total that matches nothing is
+// worth a second look at the document before it is written down — but nothing
+// here is matched by hand: `--readings` re-derives every match in Go.
+type worksheetPay struct {
+	Date        string  `json:"date"`
+	Amount      float64 `json:"amount"`
+	Description string  `json:"description"`
+}
+
+var howToFill = []string{
+	"Read each entry in `invoices`. Where `needs_image` is true there was no text to pull out — open the file at `path` and look at it.",
+	"Write a readings file: {\"invoices\": [ … ]}, one object per entry, shaped like `reading_template`, with the same `file` name.",
+	"Record only what the document shows. A null is always better than a guess — every field here ends up in a tax record.",
+	"`total` is the amount payable including VAT: the total, not the subtotal, and the amount of this document rather than a balance brought forward.",
+	"`purpose` is what was bought, in a short phrase from the line items ('A2 canvas prints × 3'). Name the goods or service; do not repeat the supplier or describe the document.",
+	"`is_invoice` is false for anything that is not an invoice, receipt, till slip or bill — a bank statement or a delivery note filed in the same folder.",
+	"`payments` is context for sanity-checking a total you are unsure of. Do not match anything: --readings does that, and only against a payment of exactly the total you write down.",
+	"Then: go run . --invoices <folder> --readings <file> <statement.pdf>",
+}
+
+func templateReading() reading {
+	s := func(v string) *string { return &v }
+	f := func(v float64) *float64 { return &v }
+	b := func(v bool) *bool { return &v }
+	return reading{
+		File:          "orms-1041.pdf",
+		IsInvoice:     b(true),
+		Total:         f(588.00),
+		Currency:      s("ZAR"),
+		InvoiceDate:   s("2026-09-02"),
+		Supplier:      s("Orms Pty Ltd"),
+		Purpose:       s("A2 canvas prints × 3"),
+		InvoiceNumber: s("INV-1041"),
+		ExpenseType:   s("materials"),
+	}
+}
+
+// prepareWorksheet writes the worksheet for a folder of invoices.
+func prepareWorksheet(path, dir, statement string, txs []Transaction) error {
+	files, err := invoiceFiles(dir)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var files []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if mediaType(e.Name()) == "" {
-			continue
-		}
-		files = append(files, filepath.Join(dir, e.Name()))
+	if len(files) == 0 {
+		return fmt.Errorf("no invoices found in %s", dir)
 	}
-	sort.Strings(files)
-	return files, nil
+
+	sheet := worksheet{
+		Statement:     statement,
+		InvoiceFolder: dir,
+		HowToFill:     howToFill,
+		Template:      templateReading(),
+	}
+
+	for _, file := range files {
+		item := worksheetItem{File: filepath.Base(file), Path: file}
+		if mediaType(file) == "application/pdf" {
+			// The same reader the statement uses, so an invoice with a text
+			// layer needs nothing extra installed. Errors are not fatal: an
+			// unreadable PDF just falls through to being looked at.
+			if text, err := invoiceText(file); err == nil {
+				item.Text = text
+			}
+		}
+		item.NeedsImage = strings.TrimSpace(item.Text) == ""
+		sheet.Invoices = append(sheet.Invoices, item)
+	}
+
+	// Money out only — a credit can never be a claim, so listing one would only
+	// invite a match that the ledger's own trigger would reject.
+	for _, tx := range txs {
+		if tx.Amount < 0 {
+			sheet.Payments = append(sheet.Payments, worksheetPay{
+				Date:        tx.TransactionDate,
+				Amount:      tx.Amount,
+				Description: tx.Description,
+			})
+		}
+	}
+
+	body, err := json.MarshalIndent(sheet, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, append(body, '\n'), 0o600); err != nil {
+		return err
+	}
+
+	var needImage int
+	for _, i := range sheet.Invoices {
+		if i.NeedsImage {
+			needImage++
+		}
+	}
+	fmt.Printf("\nWrote %s\n", path)
+	fmt.Printf("  %d invoice(s) from %s", len(sheet.Invoices), dir)
+	if needImage > 0 {
+		fmt.Printf(", %d with no text to read (open the file itself)", needImage)
+	}
+	fmt.Printf("\n  %d payment(s) listed for context\n", len(sheet.Payments))
+	fmt.Printf("\nFill it in, then: --invoices %s --readings <file>\n", dir)
+	return nil
 }
 
-// mediaType maps a filename to what the API should be told it is, or "" for a
-// file type that is not a document at all.
-func mediaType(name string) string {
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".pdf":
-		return "application/pdf"
-	case ".png":
-		return "image/png"
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".webp":
-		return "image/webp"
-	case ".gif":
-		return "image/gif"
+// invoiceText renders a PDF as text, line by line, in the order the page lays it
+// out. Positions are kept only as far as the line breaks: an invoice has no
+// fixed columns to read by, unlike the statement, so anything more would be
+// inventing structure that isn't there.
+func invoiceText(path string) (string, error) {
+	pages, err := readPages(path, "")
+	if err != nil {
+		return "", err
 	}
-	return ""
+
+	var out []string
+	for i, page := range pages {
+		if i > 0 {
+			out = append(out, fmt.Sprintf("--- page %d ---", i+1))
+		}
+		for _, l := range page {
+			var parts []string
+			for _, c := range l.cells {
+				if s := strings.TrimSpace(c.s); s != "" {
+					parts = append(parts, s)
+				}
+			}
+			if line := squash(strings.Join(parts, " ")); line != "" {
+				out = append(out, line)
+			}
+		}
+	}
+	return strings.Join(out, "\n"), nil
 }
 
-// readInvoices reads every invoice in dir. A file the model cannot make sense of
-// is reported as a warning and left out — one unreadable scan must not stop the
-// statement it arrived with from importing.
-func readInvoices(ctx context.Context, dir, model string) ([]Invoice, []string, error) {
+// ---------------------------------------------------------------------------
+// Step two: the readings.
+// ---------------------------------------------------------------------------
+
+// loadReadings reads a filled-in readings file and returns the invoices that can
+// be claimed, with a warning for every one that cannot. An invoice in the folder
+// with no reading at all is warned about too — it would otherwise go quietly
+// unclaimed, which is exactly the thing that is hard to notice later.
+func loadReadings(path, dir string) ([]Invoice, []string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var file readingsFile
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&file); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
+	}
+	if len(file.Invoices) == 0 {
+		return nil, nil, fmt.Errorf("%s carries no invoices", filepath.Base(path))
+	}
+
+	// What is actually in the folder, so a reading cannot name a file that was
+	// never there — a typo would otherwise claim a payment against nothing.
+	inFolder := map[string]bool{}
 	files, err := invoiceFiles(dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(files) == 0 {
-		return nil, nil, fmt.Errorf("no invoices found in %s", dir)
+	for _, f := range files {
+		inFolder[filepath.Base(f)] = false // false: not yet read
 	}
-
-	// NewClient reads ANTHROPIC_API_KEY. Ask for it up front rather than after
-	// the first file has already been read off disk.
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return nil, nil, fmt.Errorf("ANTHROPIC_API_KEY is not set — it is what reads the invoices in %s", dir)
-	}
-	client := anthropic.NewClient()
 
 	var (
 		invoices []Invoice
 		warnings []string
 	)
-	for _, path := range files {
-		name := filepath.Base(path)
-		inv, err := readInvoice(ctx, &client, model, path)
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("%s: %v", name, err))
-			continue
+	for i, r := range file.Invoices {
+		name := strings.TrimSpace(r.File)
+		if name == "" {
+			return nil, nil, fmt.Errorf("%s: reading %d names no file", filepath.Base(path), i)
 		}
-		if !inv.IsInvoice {
+		read, known := inFolder[name]
+		if !known {
+			return nil, nil, fmt.Errorf("%s: there is no %s in %s", filepath.Base(path), name, dir)
+		}
+		if read {
+			return nil, nil, fmt.Errorf("%s: %s is read twice", filepath.Base(path), name)
+		}
+		inFolder[name] = true
+
+		if r.IsInvoice != nil && !*r.IsInvoice {
 			warnings = append(warnings, fmt.Sprintf("%s: not an invoice — skipped", name))
 			continue
 		}
+
+		inv := Invoice{
+			File:      name,
+			IsInvoice: true,
+			Currency:  strings.ToUpper(deref(r.Currency)),
+			Date:      deref(r.InvoiceDate),
+			Supplier:  deref(r.Supplier),
+			Purpose:   deref(r.Purpose),
+			Number:    deref(r.InvoiceNumber),
+			Type:      deref(r.ExpenseType),
+		}
+		if r.Total != nil {
+			inv.Total = round2(*r.Total)
+		}
+		// An unstated currency is taken as rands: the account is a rand account
+		// and every document in the folder should be one. A stated one that is
+		// not ZAR is rejected below.
+		if inv.Currency == "" {
+			inv.Currency = "ZAR"
+		}
+
 		if problem := inv.incomplete(); problem != "" {
 			warnings = append(warnings, fmt.Sprintf("%s: %s — skipped", name, problem))
 			continue
 		}
 		invoices = append(invoices, inv)
 	}
+
+	var unread []string
+	for name, read := range inFolder {
+		if !read {
+			unread = append(unread, name)
+		}
+	}
+	sort.Strings(unread)
+	for _, name := range unread {
+		warnings = append(warnings, fmt.Sprintf("%s: in the folder but not in the readings — not claimed", name))
+	}
+
 	return invoices, warnings, nil
 }
 
@@ -231,7 +343,7 @@ func (i Invoice) incomplete() string {
 		return "no description of what was bought"
 	case i.Date == "":
 		return "no invoice date"
-	case i.Currency != "" && !strings.EqualFold(i.Currency, "ZAR"):
+	case !strings.EqualFold(i.Currency, "ZAR"):
 		return fmt.Sprintf("total is in %s, not rands", i.Currency)
 	case !isoDateRe.MatchString(i.Date):
 		return fmt.Sprintf("unreadable invoice date %q", i.Date)
@@ -239,88 +351,50 @@ func (i Invoice) incomplete() string {
 	return ""
 }
 
-// readInvoice sends one document to the model and returns what it recorded.
-func readInvoice(ctx context.Context, client *anthropic.Client, model, path string) (Invoice, error) {
-	media := mediaType(path)
-	if media == "" {
-		return Invoice{}, fmt.Errorf("unsupported file type")
+func deref(s *string) string {
+	if s == nil {
+		return ""
 	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Invoice{}, err
-	}
-	if len(data) == 0 {
-		return Invoice{}, fmt.Errorf("the file is empty")
-	}
-	if len(data) > maxInvoiceBytes {
-		return Invoice{}, fmt.Errorf("the file is %d MB — too large to send", len(data)>>20)
-	}
-	encoded := base64.StdEncoding.EncodeToString(data)
-
-	var document anthropic.ContentBlockParamUnion
-	if media == "application/pdf" {
-		document = anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{Data: encoded})
-	} else {
-		document = anthropic.NewImageBlockBase64(media, encoded)
-	}
-
-	resp, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     anthropic.Model(model),
-		MaxTokens: 4096,
-		System:    []anthropic.TextBlockParam{{Text: invoiceSystemPrompt}},
-		Tools:     []anthropic.ToolUnionParam{{OfTool: &invoiceTool}},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(
-				document,
-				anthropic.NewTextBlock("Record this document with the record_invoice tool."),
-			),
-		},
-	})
-	if err != nil {
-		return Invoice{}, err
-	}
-	if resp.StopReason == anthropic.StopReasonRefusal {
-		return Invoice{}, fmt.Errorf("the model declined to read the document (%s)", resp.StopDetails.Category)
-	}
-
-	// The tool is offered rather than forced, so a document the model cannot
-	// read comes back as plain text instead of a call. Say so with whatever it
-	// said, which is usually the reason.
-	for _, block := range resp.Content {
-		if use, ok := block.AsAny().(anthropic.ToolUseBlock); ok && use.Name == invoiceTool.Name {
-			var args invoiceArgs
-			if err := json.Unmarshal([]byte(use.JSON.Input.Raw()), &args); err != nil {
-				return Invoice{}, fmt.Errorf("could not read the extracted fields: %w", err)
-			}
-			inv := Invoice{
-				File:      filepath.Base(path),
-				IsInvoice: args.IsInvoice,
-				Currency:  strings.ToUpper(deref(args.Currency)),
-				Date:      deref(args.InvoiceDate),
-				Supplier:  deref(args.Supplier),
-				Purpose:   deref(args.Purpose),
-				Number:    deref(args.InvoiceNumber),
-				Type:      deref(args.ExpenseType),
-			}
-			if args.Total != nil {
-				// Negative would be a credit note, which is not a claim.
-				inv.Total = round2(*args.Total)
-			}
-			return inv, nil
-		}
-	}
-	return Invoice{}, fmt.Errorf("the model did not record any fields: %s", firstText(resp))
+	return strings.TrimSpace(*s)
 }
 
-// firstText is the model's own words, for an error message.
-func firstText(resp *anthropic.Message) string {
-	for _, block := range resp.Content {
-		if text, ok := block.AsAny().(anthropic.TextBlock); ok {
-			if s := squash(text.Text); s != "" {
-				return s
-			}
-		}
+// ---------------------------------------------------------------------------
+// The folder.
+// ---------------------------------------------------------------------------
+
+// invoiceFiles lists the documents in dir, in a stable order. Non-recursive: a
+// folder of invoices is a flat folder, and recursing would sweep up whatever
+// else is filed alongside it.
+func invoiceFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
 	}
-	return "no explanation given"
+	var files []string
+	for _, e := range entries {
+		if e.IsDir() || mediaType(e.Name()) == "" {
+			continue
+		}
+		files = append(files, filepath.Join(dir, e.Name()))
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+// mediaType maps a filename to what it is, or "" for a file that is not a
+// document at all.
+func mediaType(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".pdf":
+		return "application/pdf"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	}
+	return ""
 }
