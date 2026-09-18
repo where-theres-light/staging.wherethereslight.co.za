@@ -1,8 +1,10 @@
-// import-statement parses a Capitec statement PDF and imports its transactions.
+// import-statement parses a Capitec statement PDF and imports its transactions,
+// optionally claiming the supplier invoices that go with them.
 //
 //	cd scripts/import-statement
 //	go run . --dry-run statement.pdf
 //	go run . statement.pdf
+//	go run . --invoices ../../data/invoices statement.pdf
 //
 // Reads the PDF locally, extracts the Transaction History table, and POSTs the
 // parsed rows to the import-transactions edge function, which writes them as
@@ -14,6 +16,12 @@
 // function upserts ON CONFLICT DO NOTHING against the natural key and reports
 // how many rows were new. Running the same statement twice inserts nothing.
 //
+// With --invoices, the folder's invoices are read by Claude (invoice.go), tied
+// to the payments this statement just parsed (match.go), and posted alongside
+// them as `business_expenses` claims. The two halves are one command because
+// the match needs both: an invoice is only ever claimed against a payment of
+// exactly its total, and the payments are what this program has just read.
+//
 // Environment:
 //
 //	IMPORT_TOKEN        required (unless --dry-run) — the edge function's secret
@@ -23,10 +31,12 @@
 //	                    registered mobile number. It is read from the
 //	                    environment and never taken as an argument, so it stays
 //	                    out of shell history.
+//	ANTHROPIC_API_KEY   required with --invoices — it is what reads them.
 package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -61,6 +71,9 @@ func run() error {
 		dryRun      = flag.Bool("dry-run", false, "parse and reconcile only; print the rows, write nothing")
 		source      = flag.String("source", "", "override the source_statement label (default: the filename)")
 		passwordEnv = flag.String("password-env", "STATEMENT_PASSWORD", "environment variable holding the PDF password")
+		invoiceDir  = flag.String("invoices", "", "folder of supplier invoices to read and claim against these payments")
+		window      = flag.Int("match-window", defaultMatchWindow, "days either side of an invoice's date a payment may fall")
+		model       = flag.String("model", defaultModel, "the model that reads the invoices")
 	)
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: import-statement [flags] <statement.pdf>")
@@ -104,6 +117,17 @@ func run() error {
 	fmt.Printf("  money out %.2f\n", in-net)
 	fmt.Printf("  net       %.2f\n", net)
 
+	// The invoices are read against the payments above, so this has to follow the
+	// parse — and it runs before anything is written, so --dry-run shows exactly
+	// what an import would claim.
+	var claims []Claim
+	if *invoiceDir != "" {
+		var err error
+		if claims, err = claimInvoices(context.Background(), *invoiceDir, *model, *window, txs); err != nil {
+			return err
+		}
+	}
+
 	if *dryRun {
 		fmt.Print("\n--dry-run: nothing written\n\n")
 		for _, t := range txs {
@@ -126,11 +150,21 @@ func run() error {
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 
+	var res *importResponse
 	var inserted, skipped int
 	for start := 0; start < len(txs); start += batchSize {
 		end := min(start+batchSize, len(txs))
-		res, err := postBatch(baseURL, token, sourceName, txs[start:end])
-		if err != nil {
+
+		// The claims go with the last batch, whichever batch their own payment
+		// was in: by then every row of this statement is on record, and the
+		// function resolves each claim against the ledger by natural key.
+		var batchClaims []Claim
+		if end == len(txs) {
+			batchClaims = claims
+		}
+
+		var err error
+		if res, err = postBatch(baseURL, token, sourceName, txs[start:end], batchClaims); err != nil {
 			return err
 		}
 		inserted += res.Inserted
@@ -140,6 +174,17 @@ func run() error {
 	fmt.Printf("\nImported into %s\n", baseURL)
 	fmt.Printf("  inserted %d\n", inserted)
 	fmt.Printf("  skipped  %d (already on record)\n", skipped)
+	if len(claims) > 0 {
+		fmt.Printf("  claimed  %d business expense(s), %d already claimed\n", res.Claimed, res.ClaimsSkipped)
+		// A deployment predating business_expenses support ignores the claims
+		// and answers about the rows alone. Say so, rather than letting a run
+		// that filed nothing read like one that had nothing to file.
+		if res.Claimed+res.ClaimsSkipped == 0 {
+			fmt.Fprintf(os.Stderr,
+				"warning: the deployed import-transactions recorded none of the %d claim(s) — redeploy it\n",
+				len(claims))
+		}
+	}
 	return nil
 }
 
@@ -202,20 +247,32 @@ func readPages(path, password string) ([][]line, error) {
 }
 
 type importRequest struct {
-	SourceStatement string        `json:"source_statement"`
-	Transactions    []Transaction `json:"transactions"`
+	SourceStatement string         `json:"source_statement"`
+	Transactions    []Transaction  `json:"transactions"`
+	Claims          []claimPayload `json:"business_expenses,omitempty"`
 }
 
 type importResponse struct {
-	OK       bool   `json:"ok"`
-	Received int    `json:"received"`
-	Inserted int    `json:"inserted"`
-	Skipped  int    `json:"skipped"`
-	Error    string `json:"error"`
+	OK            bool   `json:"ok"`
+	Received      int    `json:"received"`
+	Inserted      int    `json:"inserted"`
+	Skipped       int    `json:"skipped"`
+	Claimed       int    `json:"claimed"`
+	ClaimsSkipped int    `json:"claims_skipped"`
+	Error         string `json:"error"`
 }
 
-func postBatch(baseURL, token, source string, txs []Transaction) (*importResponse, error) {
-	body, err := json.Marshal(importRequest{SourceStatement: source, Transactions: txs})
+func postBatch(baseURL, token, source string, txs []Transaction, claims []Claim) (*importResponse, error) {
+	payloads := make([]claimPayload, 0, len(claims))
+	for _, c := range claims {
+		payloads = append(payloads, c.payload())
+	}
+
+	body, err := json.Marshal(importRequest{
+		SourceStatement: source,
+		Transactions:    txs,
+		Claims:          payloads,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -244,4 +301,60 @@ func postBatch(baseURL, token, source string, txs []Transaction) (*importRespons
 		return nil, fmt.Errorf("import failed (HTTP %d)", res.StatusCode)
 	}
 	return &parsed, nil
+}
+
+// defaultMatchWindow is how far either side of an invoice's date its payment may
+// fall: wide enough for an invoice settled on terms, narrow enough that two
+// unrelated payments of the same amount rarely both land inside it.
+const defaultMatchWindow = 14
+
+// claimInvoices reads the invoice folder and ties each invoice to one of this
+// statement's payments. Only what earned a match comes back; everything else is
+// reported and left for the owner, because a claim against the wrong payment is
+// worse than no claim — it is invisible once it is in the books.
+func claimInvoices(ctx context.Context, dir, model string, window int, txs []Transaction) ([]Claim, error) {
+	invoices, warnings, err := readInvoices(ctx, dir, model)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
+
+	claims, unmatched := matchInvoices(invoices, txs, window)
+
+	fmt.Printf("\nRead %d invoice(s) from %s, matched %d\n", len(invoices), dir, len(claims))
+	for _, c := range claims {
+		inv, tx := c.Invoice, c.Transaction
+		fmt.Printf("  %-28s %10.2f  %s — %s\n", inv.File, inv.Total, supplierOr(inv), inv.Purpose)
+		fmt.Printf("    → %s %10.2f  %s (%s)\n", tx.TransactionDate, tx.Amount, tx.Description, apart(c.DaysApart))
+	}
+	for _, u := range unmatched {
+		fmt.Fprintf(os.Stderr, "unclaimed: %s — %s\n", u.Invoice.File, u.Reason)
+	}
+	return claims, nil
+}
+
+func supplierOr(inv Invoice) string {
+	if inv.Supplier == "" {
+		return "supplier not named"
+	}
+	return inv.Supplier
+}
+
+// apart says how the payment sits against the invoice's own date, which is the
+// one part of a match that is worth eyeballing.
+func apart(days int) string {
+	switch {
+	case days == 0:
+		return "same day"
+	case days == 1:
+		return "paid 1 day later"
+	case days > 1:
+		return fmt.Sprintf("paid %d days later", days)
+	case days == -1:
+		return "paid 1 day earlier"
+	default:
+		return fmt.Sprintf("paid %d days earlier", -days)
+	}
 }

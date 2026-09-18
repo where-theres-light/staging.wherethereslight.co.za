@@ -1,8 +1,9 @@
 ui/dist/
 
-# Downloaded bank statements. Never commit these — they are the account
-# holder's financial data. scripts/import-statement/ reads them from here.
-/data/statements/
+# Downloaded bank statements and supplier invoices. Never commit these — they
+# are the account holder's financial data. scripts/import-statement/ reads them
+# from here (statements/ and invoices/).
+/data/
 
 # Compiled importer (built on demand; never committed).
 /scripts/import-statement/import-statement
