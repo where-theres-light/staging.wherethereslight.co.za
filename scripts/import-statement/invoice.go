@@ -56,6 +56,7 @@ type Invoice struct {
 	Purpose   string  // what was bought — this becomes the claim's purpose
 	Number    string  // the supplier's invoice number, when it carries one
 	Type      string  // materials / packaging / postage / …
+	Note      string  // anything the reader had to qualify, filed with the claim
 }
 
 // reading is one invoice as the readings file carries it. Separate from Invoice
@@ -71,6 +72,7 @@ type reading struct {
 	Purpose       *string  `json:"purpose"`
 	InvoiceNumber *string  `json:"invoice_number"`
 	ExpenseType   *string  `json:"expense_type"`
+	Note          *string  `json:"note"`
 }
 
 type readingsFile struct {
@@ -128,7 +130,8 @@ var howToFill = []string{
 	"`total` is the amount payable including VAT: the total, not the subtotal, and the amount of this document rather than a balance brought forward.",
 	"`purpose` is what was bought, in a short phrase from the line items ('A2 canvas prints × 3'). Name the goods or service; do not repeat the supplier or describe the document.",
 	"`is_invoice` is false for anything that is not an invoice, receipt, till slip or bill — a bank statement or a delivery note filed in the same folder.",
-	"`pdf_created` is when the file was made, not the invoice's date. Use it to sanity-check a date you can read, or to say how sure you are of one you cannot — never in place of the printed date without saying so.",
+	"`pdf_created` is when the file was made, not the invoice's date. Use it to sanity-check a date you can read, or to say how sure you are of one you cannot — never in place of the printed date without saying so in `note`.",
+	"`note` is optional, and is where anything you had to qualify goes — a field you could not read, a value you took from somewhere other than the document. It is filed with the claim, so whoever defends the deduction reads it too.",
 	"`payments` is context for sanity-checking a total you are unsure of. Do not match anything: --readings does that, from the total you write down.",
 	"Then: go run . --invoices <folder> --readings <file> <statement.pdf>",
 }
@@ -417,6 +420,7 @@ func loadReadings(path, dir string) ([]Invoice, []string, error) {
 			Purpose:   deref(r.Purpose),
 			Number:    deref(r.InvoiceNumber),
 			Type:      deref(r.ExpenseType),
+			Note:      deref(r.Note),
 		}
 		if r.Total != nil {
 			inv.Total = round2(*r.Total)

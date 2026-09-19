@@ -284,16 +284,22 @@ together, while the columns of a table, whose gaps are many times wider, always
 separate.
 
 **The readings** are one filled-in record per invoice: total, currency, invoice
-date, supplier, what was bought, invoice number, expense type.
+date, supplier, what was bought, invoice number, expense type, and an optional
+`note`.
 
 ```json
 { "invoices": [ {
   "file": "orms-1041.pdf", "is_invoice": true, "total": 588.00, "currency": "ZAR",
   "invoice_date": "2026-09-02", "supplier": "Orms Pty Ltd",
   "purpose": "A2 canvas prints × 3", "invoice_number": "INV-1041",
-  "expense_type": "materials"
+  "expense_type": "materials", "note": "date taken from the PDF timestamp"
 } ] }
 ```
+
+The `note` is where anything the reader had to qualify goes — a field that would
+not decode, a value taken from somewhere other than the document. It is filed
+with the claim, alongside the filename, because the claim is what gets defended
+later and the worksheet is not kept.
 
 A **Claude Code session** with the folder open is what the worksheet is built
 for: it reads the text, opens the files flagged `needs_image`, and writes the

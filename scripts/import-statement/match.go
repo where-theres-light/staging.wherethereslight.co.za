@@ -343,7 +343,16 @@ func (c Claim) payload() claimPayload {
 		InvoiceNumber: c.Invoice.Number,
 		InvoiceDate:   c.Invoice.Date,
 		// Which file the claim was read from — the paperwork it has to be
-		// produced with if the deduction is ever queried.
-		Note: "invoice: " + c.Invoice.File,
+		// produced with if the deduction is ever queried — and whatever the
+		// reader had to qualify about it.
+		Note: note(c.Invoice),
 	}
+}
+
+func note(inv Invoice) string {
+	n := "invoice: " + inv.File
+	if inv.Note != "" {
+		n += "; " + inv.Note
+	}
+	return n
 }

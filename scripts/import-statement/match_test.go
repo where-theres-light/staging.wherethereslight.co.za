@@ -246,4 +246,12 @@ func TestPayloadCarriesTheInvoiceAndItsPaymentsKey(t *testing.T) {
 	if got.Note != "invoice: orms.pdf" {
 		t.Errorf("note = %q, want the invoice's filename", got.Note)
 	}
+
+	// And what the reader could not be sure of travels with it, since the claim
+	// is what gets defended, not the worksheet it was read from.
+	inv.Note = "date taken from the PDF timestamp; the printed one did not decode"
+	got = Claim{Invoice: inv, Transaction: payment}.payload()
+	if got.Note != "invoice: orms.pdf; "+inv.Note {
+		t.Errorf("note = %q, want the file and the reader's caveat", got.Note)
+	}
 }
