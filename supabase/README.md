@@ -237,13 +237,157 @@ balance yet, and they arrive again as real rows on the next statement.
 `go test ./scripts/import-statement/` covers the column logic with synthetic
 rows — no statement fixture, so the tests carry no real data.
 
+### Invoices — read in two steps, matched to a payment
+
+A statement row says money left the account; it never says what for. That is what
+the supplier's invoice carries, and it is what a deduction cannot be defended
+without — see *Business expenses* under *Monthly aggregations* below.
+
+Invoices are **not parsed**, which is the opposite choice to the statement next
+door and for the opposite reason. The statement is one bank's fixed layout, so
+its columns can be read by position and checked against the printed balance
+chain. An invoice is whatever the supplier's software prints — a table, a
+letterhead, a photo of a till slip — and there is no second figure to check it
+against, so there is nothing for a parser to lock onto. Reading one is a
+judgement, and the importer does not make it.
+
+So the job splits in half, with the reader in between:
+
+```bash
+# 1. Write the worksheet: every invoice's text, with the statement's payments.
+go run . --invoices ../../data/invoices --prepare sheet.json statement.pdf
+
+# 2. Something reads it and writes the readings (below).
+
+# 3. Import the statement, claiming what the readings can be matched to.
+go run . --invoices ../../data/invoices --readings readings.json statement.pdf
+```
+
+**The worksheet** (`--prepare`) carries, per file, the text laid out as the PDF
+lays it out — the same reader the statement uses, so nothing extra is installed
+— or `needs_image: true` when there was no text to pull out, which is a
+photograph or a scan with no text layer. Two more flags say how far to trust
+what came out: `text_partial` when some of it extracted as gibberish (a PDF can
+carry a font with no map back to real characters, and it is often the printed
+labels and dates that go while the amounts come through), and `pdf_created`, the
+file's own timestamp — *not* the invoice's date, since the file may be generated
+or emailed days after the sale, but it bounds a date that will not decode. It
+also carries a `reading_template`, a `how_to_fill` note, and the statement's
+payments for context, and writes nothing to the ledger.
+
+Some generators emit every glyph as its own fragment, which would extract as
+`T A X I N V O I C E`. The fragments carry their x positions, so each gap is
+compared against the line's own median to tell a space from a letter's width.
+The threshold leans towards joining rather than splitting — it would rather
+print `TAXINVOICE` than break a number in half — so occasionally two words run
+together, while the columns of a table, whose gaps are many times wider, always
+separate.
+
+**The readings** are one filled-in record per invoice: total, currency, invoice
+date, supplier, what was bought, invoice number, expense type, and an optional
+`note`.
+
+```json
+{ "invoices": [ {
+  "file": "orms-1041.pdf", "is_invoice": true, "total": 588.00, "currency": "ZAR",
+  "invoice_date": "2026-09-02", "supplier": "Orms Pty Ltd",
+  "purpose": "A2 canvas prints × 3", "invoice_number": "INV-1041",
+  "expense_type": "materials", "note": "date taken from the PDF timestamp"
+} ] }
+```
+
+The `note` is where anything the reader had to qualify goes — a field that would
+not decode, a value taken from somewhere other than the document. It is filed
+with the claim, alongside the filename, because the claim is what gets defended
+later and the worksheet is not kept.
+
+A **Claude Code session** with the folder open is what the worksheet is built
+for: it reads the text, opens the files flagged `needs_image`, and writes the
+readings. A person with a text editor works exactly as well. Either way nothing
+here calls an API, holds a key, or sends an invoice anywhere — the invoices and
+the statement both stay on the machine.
+
+The readings are checked rather than trusted. A record naming a file that is not
+in the folder, or naming one twice, or carrying a misspelt field, is refused
+outright; one without a total, a date or a description of what was bought is
+reported and skipped, as is a total in a currency other than rands. An invoice in
+the folder with **no reading at all** is reported too — it would otherwise go
+quietly unclaimed, which is the kind of thing nobody notices until tax time.
+
+What a reading says is still **unverified** in a way the parsed statement never
+is, however careful the reader was. That is what the match is for.
+
+#### The match is the check
+
+An invoice is only ever claimed against a payment of **its total**, made within
+`--match-window` days of the invoice's own date (14 by default). Where that
+leaves more than one candidate, the supplier's name is compared against the
+statement's description to separate them — the bank's own vocabulary ("Banking
+App External Payment") is ignored, since it appears on every row. Anything still
+ambiguous is reported and left alone:
+
+- two payments equally good — neither is claimed;
+- two invoices matching the same payment — **both** are withdrawn, because one
+  payment backs at most one claim and nothing here can say which invoice it is;
+- a total that matches nothing — reported, saying whether that amount appears
+  elsewhere in the statement (usually a date outside the window).
+
+So a misread total matches nothing and is printed rather than filed. That is the
+whole safeguard, and it is why the amount does nearly all the work: a wrong claim
+is invisible once it is in the books, an unclaimed invoice is not. When nothing
+is close enough, the report names the closest payment in the window and how far
+off it was — which is the number to check the document against.
+
+**Rounding.** Payments are rounded in practice: an Orms invoice for R195.99 is
+settled with R196.00, and the cent is evidence of nothing. `--amount-tolerance`
+is how much of that is allowed, **R1.00** by default — enough for a payment
+rounded to the rand, small enough that it rarely reaches a second payment. A
+payment matching to the cent always outranks one that needed the tolerance, and
+every claim that used it says so in the listing:
+
+```
+CU15076682J-1.pdf   195.99  Orms (Pty) Ltd — bevel box 100×100mm, white
+  → 2026-09-04  -196.00  …PayShap Payment: Orms Pty Ltd (paid 3 days earlier, 0.01 more than the invoice)
+```
+
+That line is what keeps the allowance honest — a rounded match is never silent.
+`--amount-tolerance 0` restores matching to the cent.
+
+The matching is in Go, from the amounts and dates alone, and whoever read the
+invoices gets no say in it: they write down what a document says, and the ledger
+decides whether a payment agrees. It is also why claiming belongs to this command
+rather than a separate one — the payments an invoice is matched against are the
+ones the statement scan has just produced.
+
+#### What gets written
+
+Each match is posted **with the statement, in the same request**, as a
+`business_expenses` row: `purpose` from what was bought, plus `supplier`,
+`invoice_number`, `invoice_date` and `expense_type` as read, and `note` naming
+the file it came from. The claim identifies its payment by the `transactions`
+natural key rather than by id — the importer never reads the database, so it has
+no id to send — and `import-transactions` resolves it, which also means an
+invoice can claim a payment that arrived with an earlier, overlapping statement.
+Claims are `ON CONFLICT DO NOTHING` on the one-claim-per-transaction `UNIQUE`, so
+re-running an import re-claims nothing and the monthly totals do not move.
+
+`deductible_amount` is left `NULL` — the whole payment is claimed, which is what
+matching the exact total means. A cost that is only partly business is
+apportioned by hand. `proof_url` is left `NULL` too, since the scan stays in the
+Drive folder; `note` records which file it was.
+
+`go test ./scripts/import-statement/` covers the matching rules with synthetic
+invoices and rows, and the readings file with every way it can be wrong.
+
 ### Using it
 
-Statements go in `data/statements/`, which is **git-ignored** — a bank statement
-must never be committed. The password (Capitec uses the last four digits of the
-registered mobile number) is read from an environment variable, never an
-argument, so it stays out of shell history; leave it unset for an unencrypted
-statement.
+Statements and supplier invoices are downloaded from the **`Account` folder
+shared on Google Drive** (where they now live) into `data/statements/` and
+`data/invoices/`. All of `data/` is **git-ignored** — a bank statement or an
+invoice must never be committed. The password
+(Capitec uses the last four digits of the registered mobile number) is read from
+an environment variable, never an argument, so it stays out of shell history;
+leave it unset for an unencrypted statement.
 
 ```bash
 cd scripts/import-statement
@@ -255,6 +399,11 @@ go run . --dry-run ../../data/statements/account_statement.pdf
 export IMPORT_TOKEN=…            # the function secret, below
 export STATEMENT_PASSWORD=…      # only if the PDF is encrypted
 go run . ../../data/statements/account_statement.pdf
+
+# With the invoices that go with it — see Invoices above for the middle step.
+go run . --invoices ../../data/invoices --prepare  sheet.json    ../../data/statements/account_statement.pdf
+go run . --invoices ../../data/invoices --readings readings.json ../../data/statements/account_statement.pdf --dry-run
+go run . --invoices ../../data/invoices --readings readings.json ../../data/statements/account_statement.pdf
 ```
 
 `go build -o import-statement .` gives a standalone binary instead, which needs
@@ -265,9 +414,12 @@ the summary boxes printed on page 1 — the quickest way to confirm a clean pars
 — and then `inserted` / `skipped`.
 
 `--source NAME` overrides the `source_statement` label (it defaults to the
-filename); `--password-env VAR` reads the password from a different variable.
+filename); `--password-env VAR` reads the password from a different variable; and
+`--match-window N` widens or narrows how far an invoice may sit from its
+payment, and `--amount-tolerance N` how much rounding is allowed between an
+invoice's total and what was paid.
 The only dependency is `github.com/ledongthuc/pdf` (BSD, no transitive deps),
-which reads both AES- and RC4-encrypted statements.
+which reads both AES- and RC4-encrypted statements, and reads the invoices too.
 
 ### Setup
 
@@ -287,6 +439,10 @@ which reads both AES- and RC4-encrypted statements.
    ```bash
    supabase functions deploy import-transactions --no-verify-jwt
    ```
+
+   Redeploy it before the first `--invoices` run: a deployment predating the
+   claims ignores them and files nothing. The importer says so when it happens,
+   rather than reporting a clean import that claimed nothing.
 
 Nothing here is given a service-role key: the machine running the import holds
 only `IMPORT_TOKEN`, which can do exactly one thing — append statement rows.
@@ -331,6 +487,12 @@ Nothing is deductible until it is **claimed**. A row in **`business_expenses`**
 is the assertion "this payment was a business expense, and here is what backs it
 up", and the month's total is the sum of those rows — never inferred from a
 description or a bank category, so it never has to be guessed at.
+
+A claim is made either by hand, as below, or by the statement importer from the
+supplier invoice it belongs to — see *Invoices* under *Bank transactions* above.
+Either way it is the same row, and the assertion is the same: what makes the
+importer's version safe is that it only ever claims a payment of exactly an
+invoice's total.
 
 ```sql
 INSERT INTO business_expenses
@@ -401,11 +563,14 @@ leaving a stale one behind.
    and it ends by backfilling every month already in the ledger, so an existing
    ledger is summarised the moment it runs.
 2. **Claim as you go** — nothing is required up front; add a `business_expenses`
-   row for each payment you intend to deduct.
+   row for each payment you intend to deduct, or let the importer add it from
+   that payment's invoice (*Invoices*, above).
 
-Both tables are RLS on with no policies, like the ledger they derive from.
-There is no edge function and no import path: the site never touches them, and
-the owner reads and writes them from the dashboard.
+Both tables are RLS on with no policies, like the ledger they derive from. The
+site never touches either of them, and `monthly_aggregations` has no write path
+at all — it is maintained entirely by the triggers above. The one way into
+`business_expenses` from outside the dashboard is `import-transactions`, which
+writes a claim only alongside the statement the payment came from.
 
 ## Mailing-list subscriptions
 
