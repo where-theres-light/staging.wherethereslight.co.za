@@ -266,9 +266,22 @@ go run . --invoices ../../data/invoices --readings readings.json statement.pdf
 **The worksheet** (`--prepare`) carries, per file, the text laid out as the PDF
 lays it out — the same reader the statement uses, so nothing extra is installed
 — or `needs_image: true` when there was no text to pull out, which is a
-photograph or a scan with no text layer. It also carries a `reading_template`, a
-`how_to_fill` note, and the statement's payments for context. It writes nothing
-to the ledger.
+photograph or a scan with no text layer. Two more flags say how far to trust
+what came out: `text_partial` when some of it extracted as gibberish (a PDF can
+carry a font with no map back to real characters, and it is often the printed
+labels and dates that go while the amounts come through), and `pdf_created`, the
+file's own timestamp — *not* the invoice's date, since the file may be generated
+or emailed days after the sale, but it bounds a date that will not decode. It
+also carries a `reading_template`, a `how_to_fill` note, and the statement's
+payments for context, and writes nothing to the ledger.
+
+Some generators emit every glyph as its own fragment, which would extract as
+`T A X I N V O I C E`. The fragments carry their x positions, so each gap is
+compared against the line's own median to tell a space from a letter's width.
+The threshold leans towards joining rather than splitting — it would rather
+print `TAXINVOICE` than break a number in half — so occasionally two words run
+together, while the columns of a table, whose gaps are many times wider, always
+separate.
 
 **The readings** are one filled-in record per invoice: total, currency, invoice
 date, supplier, what was bought, invoice number, expense type.
@@ -300,9 +313,9 @@ is, however careful the reader was. That is what the match is for.
 
 #### The match is the check
 
-An invoice is only ever claimed against a payment of **exactly its total**, made
-within `--match-window` days of the invoice's own date (14 by default). Where
-that leaves more than one candidate, the supplier's name is compared against the
+An invoice is only ever claimed against a payment of **its total**, made within
+`--match-window` days of the invoice's own date (14 by default). Where that
+leaves more than one candidate, the supplier's name is compared against the
 statement's description to separate them — the bank's own vocabulary ("Banking
 App External Payment") is ignored, since it appears on every row. Anything still
 ambiguous is reported and left alone:
@@ -314,8 +327,25 @@ ambiguous is reported and left alone:
   elsewhere in the statement (usually a date outside the window).
 
 So a misread total matches nothing and is printed rather than filed. That is the
-whole safeguard, and it is why the amount is matched to the cent: a wrong claim
-is invisible once it is in the books, an unclaimed invoice is not.
+whole safeguard, and it is why the amount does nearly all the work: a wrong claim
+is invisible once it is in the books, an unclaimed invoice is not. When nothing
+is close enough, the report names the closest payment in the window and how far
+off it was — which is the number to check the document against.
+
+**Rounding.** Payments are rounded in practice: an Orms invoice for R195.99 is
+settled with R196.00, and the cent is evidence of nothing. `--amount-tolerance`
+is how much of that is allowed, **R1.00** by default — enough for a payment
+rounded to the rand, small enough that it rarely reaches a second payment. A
+payment matching to the cent always outranks one that needed the tolerance, and
+every claim that used it says so in the listing:
+
+```
+CU15076682J-1.pdf   195.99  Orms (Pty) Ltd — bevel box 100×100mm, white
+  → 2026-09-04  -196.00  …PayShap Payment: Orms Pty Ltd (paid 3 days earlier, 0.01 more than the invoice)
+```
+
+That line is what keeps the allowance honest — a rounded match is never silent.
+`--amount-tolerance 0` restores matching to the cent.
 
 The matching is in Go, from the amounts and dates alone, and whoever read the
 invoices gets no say in it: they write down what a document says, and the ledger
@@ -379,7 +409,9 @@ the summary boxes printed on page 1 — the quickest way to confirm a clean pars
 
 `--source NAME` overrides the `source_statement` label (it defaults to the
 filename); `--password-env VAR` reads the password from a different variable; and
-`--match-window N` widens or narrows how far an invoice may sit from its payment.
+`--match-window N` widens or narrows how far an invoice may sit from its
+payment, and `--amount-tolerance N` how much rounding is allowed between an
+invoice's total and what was paid.
 The only dependency is `github.com/ledongthuc/pdf` (BSD, no transitive deps),
 which reads both AES- and RC4-encrypted statements, and reads the invoices too.
 

@@ -8,12 +8,18 @@ package main
 // against, not the paperwork.
 //
 // A match therefore has to be EARNED, and the amount is what earns it: an
-// invoice is only ever tied to a payment of exactly its total, made within a
-// few days of its date. Where that leaves more than one candidate, the
-// supplier's name is compared against the statement's description to separate
-// them. Anything still ambiguous is reported and left alone — a claim against
-// the wrong payment is worse than no claim, since the wrong one is invisible
-// once it is in the books.
+// invoice is only ever tied to a payment of its total, made within a few days of
+// its date. Where that leaves more than one candidate, the supplier's name is
+// compared against the statement's description to separate them. Anything still
+// ambiguous is reported and left alone — a claim against the wrong payment is
+// worse than no claim, since the wrong one is invisible once it is in the books.
+//
+// "Of its total" allows a little rounding, because payments are rounded in
+// practice: an invoice for R195.99 is settled with R196.00, and the cent is not
+// evidence of anything. --amount-tolerance sets how much rounding is allowed,
+// and a payment that matches to the cent always outranks one that needed the
+// tolerance. Every claim that used it says so in the listing, which is what
+// keeps the allowance honest: a rounded match is never silent.
 
 import (
 	"fmt"
@@ -30,11 +36,17 @@ const isoLayout = "2006-01-02"
 
 var isoDateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
+// Money is compared in whole cents. Rands are floats on the way in from both
+// the statement and the readings, and two of them that print the same do not
+// reliably subtract to zero.
+func cents(v float64) int64 { return int64(math.Round(v * 100)) }
+
 // Claim is one invoice tied to one payment: a business expense, ready to post.
 type Claim struct {
 	Invoice     Invoice
 	Transaction Transaction
-	DaysApart   int // payment date minus invoice date, for the dry-run listing
+	DaysApart   int   // payment date minus invoice date, for the dry-run listing
+	Rounding    int64 // cents the payment exceeded the invoice by, signed; 0 when exact
 }
 
 // Unmatched is an invoice that was not tied to a payment, and why not.
@@ -97,17 +109,19 @@ func nameScore(supplier, description string) int {
 
 // candidate is one possible payment for an invoice, with what ranks it.
 type candidate struct {
-	index     int // into the transactions slice, so a match is traceable back
-	score     int
-	daysApart int
+	index     int   // into the transactions slice, so a match is traceable back
+	score     int   // distinctive words shared with the supplier's name
+	daysApart int   // payment date minus invoice date
+	rounding  int64 // cents the payment differs from the invoice total by, signed
 }
 
 // matchInvoices ties each invoice to the payment it belongs to. windowDays is
-// how far either side of the invoice date a payment may fall.
+// how far either side of the invoice date a payment may fall, and tolerance is
+// how much rounding is allowed between an invoice's total and what was paid.
 //
 // Both returned slices are in the order the invoices were read, so the dry-run
 // listing follows the folder.
-func matchInvoices(invoices []Invoice, txs []Transaction, windowDays int) ([]Claim, []Unmatched) {
+func matchInvoices(invoices []Invoice, txs []Transaction, windowDays int, tolerance float64) ([]Claim, []Unmatched) {
 	var (
 		claims    []Claim
 		unmatched []Unmatched
@@ -120,7 +134,7 @@ func matchInvoices(invoices []Invoice, txs []Transaction, windowDays int) ([]Cla
 	claimAt := map[int]int{} // transaction index → position in claims
 
 	for i, inv := range invoices {
-		cands, err := candidatesFor(inv, txs, windowDays)
+		cands, err := candidatesFor(inv, txs, windowDays, tolerance)
 		if err != nil {
 			unmatched = append(unmatched, Unmatched{Invoice: inv, Reason: err.Error()})
 			continue
@@ -129,7 +143,7 @@ func matchInvoices(invoices []Invoice, txs []Transaction, windowDays int) ([]Cla
 		best := cands[0]
 		if len(cands) > 1 {
 			next := cands[1]
-			if best.score == next.score && best.daysApart == next.daysApart {
+			if best.score == next.score && best.rounding == next.rounding && best.daysApart == next.daysApart {
 				unmatched = append(unmatched, Unmatched{
 					Invoice: inv,
 					Reason: fmt.Sprintf("%d payments of %.2f are equally good matches — claim it by hand",
@@ -168,6 +182,7 @@ func matchInvoices(invoices []Invoice, txs []Transaction, windowDays int) ([]Cla
 			Invoice:     inv,
 			Transaction: txs[best.index],
 			DaysApart:   best.daysApart,
+			Rounding:    best.rounding,
 		})
 	}
 
@@ -175,24 +190,36 @@ func matchInvoices(invoices []Invoice, txs []Transaction, windowDays int) ([]Cla
 }
 
 // candidatesFor returns the payments an invoice could belong to, best first, or
-// an error saying why there are none.
-func candidatesFor(inv Invoice, txs []Transaction, windowDays int) ([]candidate, error) {
+// an error saying why there are none — an error a person has to act on, so it
+// says what was nearly right rather than only that nothing was.
+func candidatesFor(inv Invoice, txs []Transaction, windowDays int, tolerance float64) ([]candidate, error) {
 	invoiceDate, err := time.Parse(isoLayout, inv.Date)
 	if err != nil {
 		return nil, fmt.Errorf("unreadable invoice date %q", inv.Date)
 	}
+	allowed := cents(tolerance)
+	if allowed < 0 {
+		allowed = 0
+	}
+	total := cents(inv.Total)
 
 	var (
 		cands      []candidate
-		sameAmount int // payments of the right amount but outside the window
+		inWindow   int // debits inside the window, whatever the amount
+		rightMoney int // debits of the right amount, wherever they fall
+		nearest    *Transaction
+		nearestBy  int64
 	)
 	for i, tx := range txs {
 		// Money out only. A credit is a refund or income; the ledger's own
 		// trigger rejects a claim against one.
-		if tx.Amount >= 0 || round2(-tx.Amount) != round2(inv.Total) {
+		if tx.Amount >= 0 {
 			continue
 		}
-		sameAmount++
+		rounding := cents(-tx.Amount) - total
+		if absCents(rounding) <= allowed {
+			rightMoney++
+		}
 
 		paid, err := time.Parse(isoLayout, tx.TransactionDate)
 		if err != nil {
@@ -202,28 +229,53 @@ func candidatesFor(inv Invoice, txs []Transaction, windowDays int) ([]candidate,
 		if days < -windowDays || days > windowDays {
 			continue
 		}
+		inWindow++
+
+		// The closest payment in the window, for the report when none is close
+		// enough — the amount to check the document against.
+		if nearest == nil || absCents(rounding) < absCents(nearestBy) {
+			t := tx
+			nearest, nearestBy = &t, rounding
+		}
+
+		if absCents(rounding) > allowed {
+			continue
+		}
 		cands = append(cands, candidate{
 			index:     i,
 			score:     nameScore(inv.Supplier, tx.Description),
 			daysApart: days,
+			rounding:  rounding,
 		})
 	}
 
 	if len(cands) == 0 {
-		if sameAmount > 0 {
+		switch {
+		case rightMoney > 0:
 			return nil, fmt.Errorf("no payment of %.2f within %d days of %s (there are %d elsewhere in the statement)",
-				inv.Total, windowDays, inv.Date, sameAmount)
+				inv.Total, windowDays, inv.Date, rightMoney)
+		case nearest != nil:
+			return nil, fmt.Errorf("no payment of %.2f within %d days of %s — the closest is %.2f on %s, %.2f away",
+				inv.Total, windowDays, inv.Date, -nearest.Amount, nearest.TransactionDate, float64(absCents(nearestBy))/100)
+		case inWindow == 0:
+			return nil, fmt.Errorf("no money went out within %d days of %s", windowDays, inv.Date)
+		default:
+			return nil, fmt.Errorf("no payment of %.2f in this statement", inv.Total)
 		}
-		return nil, fmt.Errorf("no payment of %.2f in this statement", inv.Total)
 	}
 
-	// Best name match first; then the payment closest to the invoice date, and a
-	// payment after the invoice ahead of one the same distance before it, which
-	// is the ordinary way round.
+	// Best name match first; then the payment that agrees with the total most
+	// exactly, so a payment to the cent always outranks one that needed the
+	// tolerance; then the one closest to the invoice date, and a payment after
+	// the invoice ahead of one the same distance before it, which is the
+	// ordinary way round.
 	sort.SliceStable(cands, func(a, b int) bool {
 		x, y := cands[a], cands[b]
 		if x.score != y.score {
 			return x.score > y.score
+		}
+		if absCents(x.rounding) != absCents(y.rounding) {
+			return absCents(x.rounding) < absCents(y.rounding)
 		}
 		if abs(x.daysApart) != abs(y.daysApart) {
 			return abs(x.daysApart) < abs(y.daysApart)
@@ -231,6 +283,13 @@ func candidatesFor(inv Invoice, txs []Transaction, windowDays int) ([]candidate,
 		return x.daysApart > y.daysApart
 	})
 	return cands, nil
+}
+
+func absCents(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 func abs(n int) int {

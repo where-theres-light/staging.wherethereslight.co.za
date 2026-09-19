@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The matcher is what stands between a misread invoice and a wrong deduction,
 // so these cover the cases where it must refuse as closely as the ones where it
@@ -33,7 +36,7 @@ func TestMatchesPaymentOfTheSameAmount(t *testing.T) {
 		tx("2026-09-04", "Pick n Pay Bellville (Card 5581)", -58.38),
 		tx("2026-09-04", "Banking App External Payment: Orms Pty Ltd", -588.00),
 	}
-	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-02", "Orms Pty Ltd", 588)}, txs, 14)
+	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-02", "Orms Pty Ltd", 588)}, txs, 14, defaultTolerance)
 
 	if len(unmatched) != 0 {
 		t.Fatalf("expected no unmatched invoices, got %v", unmatched)
@@ -53,7 +56,7 @@ func TestIgnoresCreditsOfTheSameAmount(t *testing.T) {
 	// Money in of the same amount is a refund or a sale, never a deductible
 	// expense — the ledger's own trigger would reject the claim.
 	txs := []Transaction{tx("2026-09-04", "Payment Received: Orms Pty Ltd", 588.00)}
-	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-04", "Orms Pty Ltd", 588)}, txs, 14)
+	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-04", "Orms Pty Ltd", 588)}, txs, 14, defaultTolerance)
 
 	if len(claims) != 0 {
 		t.Fatalf("claimed a credit: %v", claims)
@@ -65,7 +68,7 @@ func TestIgnoresCreditsOfTheSameAmount(t *testing.T) {
 
 func TestRefusesAPaymentOutsideTheWindow(t *testing.T) {
 	txs := []Transaction{tx("2026-09-30", "Banking App External Payment: Orms Pty Ltd", -588.00)}
-	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-02", "Orms Pty Ltd", 588)}, txs, 14)
+	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-02", "Orms Pty Ltd", 588)}, txs, 14, defaultTolerance)
 
 	if len(claims) != 0 {
 		t.Fatalf("matched outside the window: %v", claims)
@@ -80,7 +83,7 @@ func TestTheSupplierNameSeparatesTwoPaymentsOfTheSameAmount(t *testing.T) {
 		tx("2026-09-03", "Banking App External Payment: Miss L Small", -250.00),
 		tx("2026-09-04", "Orms Bellville Cape Town (Card 5581)", -250.00),
 	}
-	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-02", "Orms Pty Ltd", 250)}, txs, 14)
+	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-02", "Orms Pty Ltd", 250)}, txs, 14, defaultTolerance)
 
 	if len(unmatched) != 0 {
 		t.Fatalf("expected the name to settle it, got %v", unmatched)
@@ -97,7 +100,7 @@ func TestRefusesTwoEquallyGoodPayments(t *testing.T) {
 		tx("2026-09-04", "Banking App External Payment: Supplier A", -250.00),
 		tx("2026-09-04", "Banking App External Payment: Supplier B", -250.00),
 	}
-	claims, unmatched := matchInvoices([]Invoice{invoice("frames.pdf", "2026-09-04", "Woodwork Framing", 250)}, txs, 14)
+	claims, unmatched := matchInvoices([]Invoice{invoice("frames.pdf", "2026-09-04", "Woodwork Framing", 250)}, txs, 14, defaultTolerance)
 
 	if len(claims) != 0 {
 		t.Fatalf("guessed between two payments: %v", claims)
@@ -116,7 +119,7 @@ func TestTwoInvoicesCannotClaimThePaymentBetweenThem(t *testing.T) {
 		invoice("orms-1.pdf", "2026-09-02", "Orms Pty Ltd", 588),
 		invoice("orms-2.pdf", "2026-09-03", "Orms Pty Ltd", 588),
 	}
-	claims, unmatched := matchInvoices(invoices, txs, 14)
+	claims, unmatched := matchInvoices(invoices, txs, 14, defaultTolerance)
 
 	if len(claims) != 0 {
 		t.Fatalf("claimed one payment twice: %v", claims)
@@ -136,7 +139,7 @@ func TestAnUnrelatedInvoiceLeavesEarlierClaimsAlone(t *testing.T) {
 		invoice("postage.pdf", "2026-09-05", "PostNet", 120),
 		invoice("missing.pdf", "2026-09-05", "Someone Else", 999),
 	}
-	claims, unmatched := matchInvoices(invoices, txs, 14)
+	claims, unmatched := matchInvoices(invoices, txs, 14, defaultTolerance)
 
 	if len(claims) != 2 {
 		t.Fatalf("expected 2 claims, got %d: %v", len(claims), claims)
@@ -146,12 +149,65 @@ func TestAnUnrelatedInvoiceLeavesEarlierClaimsAlone(t *testing.T) {
 	}
 }
 
-func TestCentsMustAgree(t *testing.T) {
-	txs := []Transaction{tx("2026-09-04", "Banking App External Payment: Orms Pty Ltd", -588.01)}
-	claims, _ := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-04", "Orms Pty Ltd", 588.00)}, txs, 14)
+func TestAPaymentRoundedToTheRandStillMatches(t *testing.T) {
+	// What actually happens: the invoice is for 195.99 and 196.00 is paid. The
+	// cent is evidence of nothing, and refusing it would leave a real expense
+	// unclaimed.
+	txs := []Transaction{tx("2026-09-04", "Banking App External PayShap Payment: Orms Pty Ltd", -196.00)}
+	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-04", "Orms Pty Ltd", 195.99)}, txs, 14, defaultTolerance)
+
+	if len(unmatched) != 0 {
+		t.Fatalf("refused a payment rounded to the rand: %v", unmatched)
+	}
+	if len(claims) != 1 {
+		t.Fatalf("expected 1 claim, got %d", len(claims))
+	}
+	// Recorded, so the listing can say the claim leant on the tolerance.
+	if claims[0].Rounding != 1 {
+		t.Errorf("rounding = %d cents, want 1", claims[0].Rounding)
+	}
+}
+
+func TestADifferenceBeyondTheToleranceIsRefused(t *testing.T) {
+	// Two rand is not rounding, it is a different payment.
+	txs := []Transaction{tx("2026-09-04", "Banking App External Payment: Orms Pty Ltd", -198.00)}
+	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-04", "Orms Pty Ltd", 195.99)}, txs, 14, defaultTolerance)
 
 	if len(claims) != 0 {
-		t.Fatalf("matched an amount that differs by a cent: %v", claims)
+		t.Fatalf("matched a payment 2.01 away: %v", claims)
+	}
+	// And the report has to name it, or there is nothing to act on: this is the
+	// case where the total was misread, or the tolerance is genuinely too tight.
+	if len(unmatched) != 1 || !strings.Contains(unmatched[0].Reason, "198.00") {
+		t.Fatalf("expected the closest payment to be named, got %v", unmatched)
+	}
+}
+
+func TestZeroToleranceMeansToTheCent(t *testing.T) {
+	txs := []Transaction{tx("2026-09-04", "Banking App External Payment: Orms Pty Ltd", -196.00)}
+	claims, _ := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-04", "Orms Pty Ltd", 195.99)}, txs, 14, 0)
+
+	if len(claims) != 0 {
+		t.Fatalf("--amount-tolerance 0 matched a cent apart: %v", claims)
+	}
+}
+
+func TestAnExactPaymentOutranksARoundedOne(t *testing.T) {
+	// The tolerance widens what may match; it must never cost an exact match.
+	txs := []Transaction{
+		tx("2026-09-04", "Banking App External Payment: Orms Pty Ltd", -196.00),
+		tx("2026-09-05", "Banking App External Payment: Orms Pty Ltd", -195.99),
+	}
+	claims, unmatched := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-03", "Orms Pty Ltd", 195.99)}, txs, 14, defaultTolerance)
+
+	if len(unmatched) != 0 {
+		t.Fatalf("expected the exact payment to settle it, got %v", unmatched)
+	}
+	if len(claims) != 1 || claims[0].Transaction.Amount != -195.99 {
+		t.Fatalf("took the rounded payment over the exact one: %v", claims)
+	}
+	if claims[0].Rounding != 0 {
+		t.Errorf("rounding = %d cents, want 0", claims[0].Rounding)
 	}
 }
 

@@ -77,6 +77,7 @@ func run() error {
 		prepare     = flag.String("prepare", "", "with --invoices: write the worksheet here for reading, and stop")
 		readings    = flag.String("readings", "", "with --invoices: the filled-in worksheet readings to claim from")
 		window      = flag.Int("match-window", defaultMatchWindow, "days either side of an invoice's date a payment may fall")
+		tolerance   = flag.Float64("amount-tolerance", defaultTolerance, "rands a payment may differ from an invoice's total by, for rounding")
 	)
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: import-statement [flags] <statement.pdf>")
@@ -140,7 +141,7 @@ func run() error {
 	var claims []Claim
 	if *readings != "" {
 		var err error
-		if claims, err = claimInvoices(*readings, *invoiceDir, *window, txs); err != nil {
+		if claims, err = claimInvoices(*readings, *invoiceDir, *window, *tolerance, txs); err != nil {
 			return err
 		}
 	}
@@ -325,6 +326,13 @@ func postBatch(baseURL, token, source string, txs []Transaction, claims []Claim)
 // unrelated payments of the same amount rarely both land inside it.
 const defaultMatchWindow = 14
 
+// defaultTolerance is how much rounding is allowed between an invoice's total
+// and what was paid. A rand covers what actually happens — an invoice for
+// R195.99 settled with R196.00, a cash sale rounded to the nearest 5c — and is
+// small enough that it rarely reaches a second payment. A match to the cent
+// always wins over one that used it, and any claim that did is printed as such.
+const defaultTolerance = 1.00
+
 // claimInvoices takes the filled-in readings and ties each invoice to one of this
 // statement's payments. Only what earned a match comes back; everything else is
 // reported and left for the owner, because a claim against the wrong payment is
@@ -333,7 +341,7 @@ const defaultMatchWindow = 14
 // The matching happens here, in Go, from the amounts and dates alone. Whoever
 // read the invoices does not get a say in it: they write down what a document
 // says, and the ledger decides whether a payment agrees.
-func claimInvoices(readings, dir string, window int, txs []Transaction) ([]Claim, error) {
+func claimInvoices(readings, dir string, window int, tolerance float64, txs []Transaction) ([]Claim, error) {
 	invoices, warnings, err := loadReadings(readings, dir)
 	if err != nil {
 		return nil, err
@@ -342,18 +350,33 @@ func claimInvoices(readings, dir string, window int, txs []Transaction) ([]Claim
 		fmt.Fprintln(os.Stderr, "warning:", w)
 	}
 
-	claims, unmatched := matchInvoices(invoices, txs, window)
+	claims, unmatched := matchInvoices(invoices, txs, window, tolerance)
 
 	fmt.Printf("\nRead %d invoice(s) from %s, matched %d\n", len(invoices), dir, len(claims))
 	for _, c := range claims {
 		inv, tx := c.Invoice, c.Transaction
 		fmt.Printf("  %-28s %10.2f  %s — %s\n", inv.File, inv.Total, supplierOr(inv), inv.Purpose)
-		fmt.Printf("    → %s %10.2f  %s (%s)\n", tx.TransactionDate, tx.Amount, tx.Description, apart(c.DaysApart))
+		fmt.Printf("    → %s %10.2f  %s (%s%s)\n", tx.TransactionDate, tx.Amount, tx.Description,
+			apart(c.DaysApart), rounded(c.Rounding))
 	}
 	for _, u := range unmatched {
 		fmt.Fprintf(os.Stderr, "unclaimed: %s — %s\n", u.Invoice.File, u.Reason)
 	}
 	return claims, nil
+}
+
+// rounded names the gap between the invoice's total and what was paid, so a
+// claim that leant on --amount-tolerance says so where it is read. An exact
+// match adds nothing.
+func rounded(c int64) string {
+	switch {
+	case c == 0:
+		return ""
+	case c > 0:
+		return fmt.Sprintf(", %.2f more than the invoice", float64(c)/100)
+	default:
+		return fmt.Sprintf(", %.2f less than the invoice", float64(-c)/100)
+	}
 }
 
 func supplierOr(inv Invoice) string {

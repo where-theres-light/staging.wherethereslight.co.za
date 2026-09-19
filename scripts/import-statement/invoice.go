@@ -38,6 +38,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+	"unicode"
+
+	"github.com/ledongthuc/pdf"
 )
 
 // Invoice is one supplier document, as it was read.
@@ -96,6 +100,15 @@ type worksheetItem struct {
 	// True when nothing could be pulled out of the file: a photograph, or a
 	// scan with no text layer. The file itself has to be looked at.
 	NeedsImage bool `json:"needs_image"`
+	// True when some of the text came out as gibberish. A PDF can carry a font
+	// with no map back to real characters, and those runs extract as punctuation
+	// — often the printed labels and dates, while the amounts come through
+	// fine. What is left is worth reading, but not worth trusting on its own.
+	TextPartial bool `json:"text_partial,omitempty"`
+	// When the PDF says it was made. NOT the invoice's own date — it is the file
+	// being generated or emailed, which may be days after the sale — but it
+	// bounds the date when the printed one will not decode.
+	Created string `json:"pdf_created,omitempty"`
 }
 
 // worksheetPay is one payment from the statement, for context only. Reading an
@@ -109,13 +122,14 @@ type worksheetPay struct {
 }
 
 var howToFill = []string{
-	"Read each entry in `invoices`. Where `needs_image` is true there was no text to pull out — open the file at `path` and look at it.",
+	"Read each entry in `invoices`. Where `needs_image` is true there was no text to pull out, and where `text_partial` is true some of it came out as gibberish — in both cases open the file at `path` and look at it.",
 	"Write a readings file: {\"invoices\": [ … ]}, one object per entry, shaped like `reading_template`, with the same `file` name.",
 	"Record only what the document shows. A null is always better than a guess — every field here ends up in a tax record.",
 	"`total` is the amount payable including VAT: the total, not the subtotal, and the amount of this document rather than a balance brought forward.",
 	"`purpose` is what was bought, in a short phrase from the line items ('A2 canvas prints × 3'). Name the goods or service; do not repeat the supplier or describe the document.",
 	"`is_invoice` is false for anything that is not an invoice, receipt, till slip or bill — a bank statement or a delivery note filed in the same folder.",
-	"`payments` is context for sanity-checking a total you are unsure of. Do not match anything: --readings does that, and only against a payment of exactly the total you write down.",
+	"`pdf_created` is when the file was made, not the invoice's date. Use it to sanity-check a date you can read, or to say how sure you are of one you cannot — never in place of the printed date without saying so.",
+	"`payments` is context for sanity-checking a total you are unsure of. Do not match anything: --readings does that, from the total you write down.",
 	"Then: go run . --invoices <folder> --readings <file> <statement.pdf>",
 }
 
@@ -161,7 +175,9 @@ func prepareWorksheet(path, dir, statement string, txs []Transaction) error {
 			// unreadable PDF just falls through to being looked at.
 			if text, err := invoiceText(file); err == nil {
 				item.Text = text
+				item.TextPartial = looksGarbled(text)
 			}
+			item.Created = pdfCreated(file)
 		}
 		item.NeedsImage = strings.TrimSpace(item.Text) == ""
 		sheet.Invoices = append(sheet.Invoices, item)
@@ -204,9 +220,9 @@ func prepareWorksheet(path, dir, statement string, txs []Transaction) error {
 }
 
 // invoiceText renders a PDF as text, line by line, in the order the page lays it
-// out. Positions are kept only as far as the line breaks: an invoice has no
-// fixed columns to read by, unlike the statement, so anything more would be
-// inventing structure that isn't there.
+// out. Positions are kept only as far as the line breaks and the spaces within
+// them: an invoice has no fixed columns to read by, unlike the statement, so
+// anything more would be inventing structure that isn't there.
 func invoiceText(path string) (string, error) {
 	pages, err := readPages(path, "")
 	if err != nil {
@@ -219,18 +235,119 @@ func invoiceText(path string) (string, error) {
 			out = append(out, fmt.Sprintf("--- page %d ---", i+1))
 		}
 		for _, l := range page {
-			var parts []string
-			for _, c := range l.cells {
-				if s := strings.TrimSpace(c.s); s != "" {
-					parts = append(parts, s)
-				}
-			}
-			if line := squash(strings.Join(parts, " ")); line != "" {
+			if line := squash(renderLine(l)); line != "" {
 				out = append(out, line)
 			}
 		}
 	}
 	return strings.Join(out, "\n"), nil
+}
+
+// renderLine turns one line's fragments into text.
+//
+// Some PDF generators emit a whole word per fragment; others — the one Orms
+// invoices come out of, among them — emit every glyph separately, and joining
+// those with a space gives "T A X I N V O I C E". The fragments carry their x
+// positions, so the gaps say which is which: within a word the gap is one
+// character's width and repeats, between words it is visibly larger. Comparing
+// each gap against the line's own median makes that a per-line question, so a
+// line set in a bigger face is judged by its own spacing.
+func renderLine(l line) string {
+	var cells []cell
+	for _, c := range l.cells {
+		if strings.TrimSpace(c.s) != "" {
+			cells = append(cells, c)
+		}
+	}
+	if len(cells) == 0 {
+		return ""
+	}
+
+	// Only glyph-split lines are rejoined. A line of whole words has gaps that
+	// mean nothing (a fragment's x says where it starts, not how wide it is),
+	// so there the space between fragments is taken at face value.
+	single := 0
+	for _, c := range cells {
+		if len([]rune(strings.TrimSpace(c.s))) == 1 {
+			single++
+		}
+	}
+	if single*2 <= len(cells) {
+		var parts []string
+		for _, c := range cells {
+			parts = append(parts, strings.TrimSpace(c.s))
+		}
+		return strings.Join(parts, " ")
+	}
+
+	gaps := make([]float64, 0, len(cells)-1)
+	for i := 1; i < len(cells); i++ {
+		gaps = append(gaps, cells[i].x-cells[i-1].x)
+	}
+	if len(gaps) == 0 {
+		return strings.TrimSpace(cells[0].s)
+	}
+	sorted := append([]float64(nil), gaps...)
+	sort.Float64s(sorted)
+	// Twice the median: a character's own width is the median gap, and a space
+	// adds most of another character to it, so the boundary sits comfortably
+	// between the two. Column gaps in a table are many times larger again.
+	threshold := sorted[len(sorted)/2] * 2
+
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(cells[0].s))
+	for i, c := range cells[1:] {
+		if gaps[i] > threshold {
+			b.WriteByte(' ')
+		}
+		b.WriteString(strings.TrimSpace(c.s))
+	}
+	return b.String()
+}
+
+// looksGarbled reports whether enough of the text came out as meaningless
+// punctuation to warn about. A PDF may carry a subset font with no map back to
+// Unicode, and its runs extract as "!\"#$%&\'" — which reads as an invoice with
+// missing fields rather than as an extraction that failed, unless it is said.
+func looksGarbled(text string) bool {
+	var total, noise int
+	for _, token := range strings.Fields(text) {
+		total++
+		if !strings.ContainsFunc(token, func(r rune) bool {
+			return unicode.IsLetter(r) || unicode.IsDigit(r)
+		}) {
+			noise++
+		}
+	}
+	// A tenth: real text has the odd bare "—" or "|", but nothing like this.
+	return total > 0 && noise*10 > total
+}
+
+// pdfCreated returns the PDF's own creation date as YYYY-MM-DD, or "" when it
+// carries none. PDF writes it as D:YYYYMMDDHHmmSS with an offset.
+func pdfCreated(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	r, err := pdf.NewReaderEncrypted(f, st.Size(), func() string { return "" })
+	if err != nil {
+		return ""
+	}
+	raw := strings.TrimPrefix(r.Trailer().Key("Info").Key("CreationDate").RawString(), "D:")
+	if len(raw) < 8 {
+		return ""
+	}
+	created, err := time.Parse("20060102", raw[:8])
+	if err != nil {
+		return ""
+	}
+	return created.Format(isoLayout)
 }
 
 // ---------------------------------------------------------------------------
