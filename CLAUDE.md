@@ -164,16 +164,29 @@ Standalone **Go** programs that are not part of the site build and never ship in
 - **`scripts/import-statement/`** — parses a Capitec bank-statement PDF and
   imports its transactions into the `transactions` table, through the
   `import-transactions` edge function (the table is service-role only, so the
-  program never holds a Supabase key). See *Bank transactions* in
-  `supabase/README.md`.
+  program never holds a Supabase key). With `--invoices <dir>` it also claims the
+  supplier invoices that go with the statement, in two steps: `--prepare` writes a
+  worksheet of every invoice's text for a Claude Code session (or a person) to
+  read, and `--readings` takes the filled-in records back, ties each to a payment
+  of its total (allowing a little rounding — R195.99 is settled with R196.00), and
+  posts the matches as `transaction_classifications` rows in the same request,
+  each with the bank's charge for making that payment, which the parser split off
+  the same statement line. Reading an invoice is a judgement — the layout changes
+  from company to company — so the program does not make it; matching is all it
+  decides. The other side of the books is not decided here at all: the owner's
+  `personal_rules` live in the database and the edge function applies them after
+  every import, so the importer neither holds them nor can read them — it only
+  reports how many were marked and how many are still unclassified. No API, no
+  key. See *Bank transactions* in `supabase/README.md`.
 
 Go rather than Deno because the statement table is read by **column position**
 rather than by splitting text, which needs the x coordinate of every fragment —
 and because a compiled binary needs no runtime installed on whatever machine
 does the import.
 
-Statements live in `data/statements/`, which is git-ignored — bank statements
-and the PDF password never go in the repo.
+Statements and invoices live in `data/statements/` and `data/invoices/` — all of
+`data/` is git-ignored, so bank statements, invoices and the PDF password never
+go in the repo.
 
 ## GitHub Pages — staging and production repos
 

@@ -4,13 +4,17 @@ The production catalogue, checkout/orders, mailing list, and page-visit metrics
 live in Supabase. The offline `dev` build never touches it — it seeds the same
 catalogue data from `ui/demo.js`.
 
-The schema is **four migrations**: `db/001_catalog.sql` for the public,
+The schema is **three files**: `db/001_catalog.sql` for the public,
 read-only product catalogue, `db/002_sessions.sql` for everything the site
 writes — `sessions` (the hub) plus every table that references it (`orders`,
 `subscriptions`, `page_visits`) and the shared `rate_limits` — and, for the
-books, which the site never touches at all, `db/003_transactions.sql` (the bank
-ledger) and `db/004_monthly_aggregations.sql` (the month-by-month summary
-derived from it). See *Bank transactions* and *Monthly aggregations* below.
+books, which the site never touches at all, **`db/003_books.sql`** — the bank
+ledger, what each transaction was (business or personal), the rules that
+recognise the personal ones, and the month-by-month summary derived from all of
+it. Those four tables are one file because they are one subject: every one of
+them hangs off `transactions`, and following a single number from the statement
+to the summary meant holding three files open. See *Bank transactions* and
+*Monthly aggregations* below.
 
 ## Sessions (the hub)
 
@@ -172,7 +176,7 @@ derived from `orders`: an order is what a buyer *owes*, a transaction is money
 that *arrived*, and the two do not line up (fees, transfers, refunds, cash).
 Nothing in the shipped site reads or writes this table.
 
-- **`../db/003_transactions.sql`** — the schema. RLS on with no policies, like
+- **`../db/003_books.sql`** — the schema. RLS on with no policies, like
   everything in `002`, so only the service role touches it.
 - **`functions/import-transactions/`** — the only write path. Validates every
   row and upserts with `ON CONFLICT DO NOTHING`, returning how many rows were
@@ -237,13 +241,240 @@ balance yet, and they arrive again as real rows on the next statement.
 `go test ./scripts/import-statement/` covers the column logic with synthetic
 rows — no statement fixture, so the tests carry no real data.
 
+### Invoices — read in two steps, matched to a payment
+
+A statement row says money left the account; it never says what for. That is what
+the supplier's invoice carries, and it is what a deduction cannot be defended
+without — see *Business expenses* under *Monthly aggregations* below.
+
+Invoices are **not parsed**, which is the opposite choice to the statement next
+door and for the opposite reason. The statement is one bank's fixed layout, so
+its columns can be read by position and checked against the printed balance
+chain. An invoice is whatever the supplier's software prints — a table, a
+letterhead, a photo of a till slip — and there is no second figure to check it
+against, so there is nothing for a parser to lock onto. Reading one is a
+judgement, and the importer does not make it.
+
+So the job splits in half, with the reader in between:
+
+```bash
+# 1. Write the worksheet: every invoice's text, with the statement's payments.
+go run . --invoices ../../data/invoices --prepare sheet.json statement.pdf
+
+# 2. Something reads it and writes the readings (below).
+
+# 3. Import the statement, claiming what the readings can be matched to.
+go run . --invoices ../../data/invoices --readings readings.json statement.pdf
+```
+
+**The worksheet** (`--prepare`) carries, per file, the text laid out as the PDF
+lays it out — the same reader the statement uses, so nothing extra is installed
+— or `needs_image: true` when there was no text to pull out, which is a
+photograph or a scan with no text layer. Two more flags say how far to trust
+what came out: `text_partial` when some of it extracted as gibberish (a PDF can
+carry a font with no map back to real characters, and it is often the printed
+labels and dates that go while the amounts come through), and `pdf_created`, the
+file's own timestamp — *not* the invoice's date, since the file may be generated
+or emailed days after the sale, but it bounds a date that will not decode. It
+also carries a `reading_template`, a `how_to_fill` note, and the statement's
+payments for context, and writes nothing to the ledger.
+
+Some generators emit every glyph as its own fragment, which would extract as
+`T A X I N V O I C E`. The fragments carry their x positions, so each gap is
+compared against the line's own median to tell a space from a letter's width.
+The threshold leans towards joining rather than splitting — it would rather
+print `TAXINVOICE` than break a number in half — so occasionally two words run
+together, while the columns of a table, whose gaps are many times wider, always
+separate.
+
+**The readings** are one filled-in record per invoice: total, currency, invoice
+date, supplier, what was bought, invoice number, expense type, and an optional
+`note`.
+
+```json
+{ "invoices": [ {
+  "file": "orms-1041.pdf", "is_invoice": true, "total": 588.00, "currency": "ZAR",
+  "invoice_date": "2026-09-02", "supplier": "Orms Pty Ltd",
+  "purpose": "A2 canvas prints × 3", "invoice_number": "INV-1041",
+  "expense_type": "materials", "note": "date taken from the PDF timestamp"
+} ] }
+```
+
+The `note` is where anything the reader had to qualify goes — a field that would
+not decode, a value taken from somewhere other than the document. It is filed
+with the claim, alongside the filename, because the claim is what gets defended
+later and the worksheet is not kept.
+
+A **Claude Code session** with the folder open is what the worksheet is built
+for: it reads the text, opens the files flagged `needs_image`, and writes the
+readings. A person with a text editor works exactly as well. Either way nothing
+here calls an API, holds a key, or sends an invoice anywhere — the invoices and
+the statement both stay on the machine.
+
+The readings are checked rather than trusted. A record naming a file that is not
+in the folder, or naming one twice, or carrying a misspelt field, is refused
+outright; one without a total, a date or a description of what was bought is
+reported and skipped, as is a total in a currency other than rands. An invoice in
+the folder with **no reading at all** is reported too — it would otherwise go
+quietly unclaimed, which is the kind of thing nobody notices until tax time.
+
+What a reading says is still **unverified** in a way the parsed statement never
+is, however careful the reader was. That is what the match is for.
+
+#### The match is the check
+
+An invoice is only ever claimed against a payment of **its total**, made within
+`--match-window` days of the invoice's own date (14 by default). Where that
+leaves more than one candidate, the supplier's name is compared against the
+statement's description to separate them — the bank's own vocabulary ("Banking
+App External Payment") is ignored, since it appears on every row. Anything still
+ambiguous is reported and left alone:
+
+- two payments equally good — neither is claimed;
+- two invoices matching the same payment — **both** are withdrawn, because one
+  payment backs at most one claim and nothing here can say which invoice it is;
+- a total that matches nothing — reported, saying whether that amount appears
+  elsewhere in the statement (usually a date outside the window).
+
+So a misread total matches nothing and is printed rather than filed. That is the
+whole safeguard, and it is why the amount does nearly all the work: a wrong claim
+is invisible once it is in the books, an unclaimed invoice is not. When nothing
+is close enough, the report names the closest payment in the window and how far
+off it was — which is the number to check the document against.
+
+**Rounding.** Payments are rounded in practice: an Orms invoice for R195.99 is
+settled with R196.00, and the cent is evidence of nothing. `--amount-tolerance`
+is how much of that is allowed, **R1.00** by default — enough for a payment
+rounded to the rand, small enough that it rarely reaches a second payment. A
+payment matching to the cent always outranks one that needed the tolerance, and
+every claim that used it says so in the listing:
+
+```
+CU15076682J-1.pdf   195.99  Orms (Pty) Ltd — bevel box 100×100mm, white
+  → 2026-09-04  -196.00  …PayShap Payment: Orms Pty Ltd (paid 3 days earlier, 0.01 more than the invoice)
+```
+
+That line is what keeps the allowance honest — a rounded match is never silent.
+`--amount-tolerance 0` restores matching to the cent.
+
+The matching is in Go, from the amounts and dates alone, and whoever read the
+invoices gets no say in it: they write down what a document says, and the ledger
+decides whether a payment agrees. It is also why claiming belongs to this command
+rather than a separate one — the payments an invoice is matched against are the
+ones the statement scan has just produced.
+
+#### Bank charges follow their payment
+
+A bank charge has no invoice and never will, so nothing above can reach it — and
+it needs none. The parser splits a statement line carrying both an amount and a
+`Fee*` into two transactions, the payment and `<description> (fee)`, so the
+charge **is** the same line as the payment: a stronger link than any invoice
+match, since it is not inferred at all but how the row came to exist. A charge
+for making a payment that is deductible is deductible on the same grounds, so
+each claimed payment's charge is claimed with it:
+
+```
+  → 2026-09-04  -196.00  …PayShap Payment: Orms Pty Ltd (paid 3 days earlier, 0.01 more than the invoice)
+  + 2026-09-04    -6.00  …PayShap Payment: Orms Pty Ltd (fee)
+```
+
+The charge is never claimed on its own, so the charges on private payments are
+not swept up. It carries `expense_type: bank charges`, a purpose naming the
+payment it was charged on, and none of the invoice's own identifiers — no
+document covers the charge, and recording a supplier's invoice number against it
+would say one does. `--claim-fees=false` leaves charges alone.
+
+#### What gets written
+
+Each match is posted **with the statement, in the same request**, as a
+`transaction_classifications` row: `purpose` from what was bought, plus `supplier`,
+`invoice_number`, `invoice_date` and `expense_type` as read, and `note` naming
+the file it came from. The claim identifies its payment by the `transactions`
+natural key rather than by id — the importer never reads the database, so it has
+no id to send — and `import-transactions` resolves it, which also means an
+invoice can claim a payment that arrived with an earlier, overlapping statement.
+Claims are `ON CONFLICT DO NOTHING` on the one-claim-per-transaction `UNIQUE`, so
+re-running an import re-claims nothing and the monthly totals do not move.
+
+`deductible_amount` is left `NULL` — the whole payment is claimed, which is what
+matching the exact total means. A cost that is only partly business is
+apportioned by hand. `proof_url` is left `NULL` too, since the scan stays in the
+Drive folder; `note` records which file it was.
+
+`go test ./scripts/import-statement/` covers the matching rules with synthetic
+invoices and rows, and the readings file with every way it can be wrong.
+
+### Personal transactions — marked by rule, in the database
+
+A business expense is claimed one document at a time, because each one has to be
+substantiated. Personal spending is the opposite shape: there is nothing to
+substantiate, there is far more of it, and what identifies it is the statement's
+own words — Pick n Pay is Pick n Pay every month. So it is recognised by pattern,
+and the patterns are rows in **`personal_rules`**:
+
+```sql
+INSERT INTO personal_rules (category, note) VALUES
+  ('Groceries', 'household groceries'),
+  ('Fuel',      'private vehicle');
+
+-- A more specific rule, run before the broad one above it.
+INSERT INTO personal_rules (match, category, note, priority) VALUES
+  ('pick n pay', 'Groceries', 'weekly shop', 10);
+```
+
+`match` is a case-insensitive substring of the description; `category` is the
+bank's own category for the row, matched whole — Capitec categorises most card
+purchases, which makes it the broader lever. Give a rule both and both must
+match; a rule with neither is refused by a `CHECK`, since it would match the
+entire ledger. `priority` orders them, lowest first, so the specific rule beats
+the general one. `enabled` switches a rule off without losing it or its place.
+
+They live in the database rather than in a file beside the importer for three
+reasons: they are data the books depend on, they belong to the account rather
+than to whichever machine ran the last import, and the importer holds no key
+that could read them — which is what makes the last piece work.
+
+**The database applies them itself.** `apply_personal_rules()` marks every
+transaction a rule recognises, and `import-transactions` calls it after every
+import, so a rule added today takes effect on the next one with nothing else to
+run. After editing the rules, sweep the ledger already on record:
+
+```sql
+SELECT * FROM apply_personal_rules();
+--  marked | unclassified
+-- --------+--------------
+--      15 |           26
+```
+
+It only ever fills in a transaction that has **no classification yet**, which is
+the whole of its safety: a rule can never overwrite an invoice-backed claim, and
+never a decision someone made by hand. Evidence first, habit second. The row it
+writes carries `source: rule` and nothing but its note — no purpose, no supplier,
+no invoice — so it can never be mistaken for a claim.
+
+The import prints what came back:
+
+```
+  claimed  2 transaction(s), 0 already classified
+  personal 15 transaction(s) marked by rule
+  left     26 transaction(s) unclassified, across the ledger
+```
+
+That last number is what marking personal is *for*. An unclassified transaction
+means either personal or not looked at yet, and only saying which turns "I
+imported September" into "I have been through September". It counts the whole
+ledger rather than this statement, because the database knows what earlier
+imports classified and the importer does not.
+
 ### Using it
 
-Statements go in `data/statements/`, which is **git-ignored** — a bank statement
-must never be committed. The password (Capitec uses the last four digits of the
-registered mobile number) is read from an environment variable, never an
-argument, so it stays out of shell history; leave it unset for an unencrypted
-statement.
+Statements and supplier invoices are downloaded from the **`Account` folder
+shared on Google Drive** (where they now live) into `data/statements/` and
+`data/invoices/`. All of `data/` is **git-ignored** — a bank statement or an
+invoice must never be committed. The password
+(Capitec uses the last four digits of the registered mobile number) is read from
+an environment variable, never an argument, so it stays out of shell history;
+leave it unset for an unencrypted statement.
 
 ```bash
 cd scripts/import-statement
@@ -255,6 +486,14 @@ go run . --dry-run ../../data/statements/account_statement.pdf
 export IMPORT_TOKEN=…            # the function secret, below
 export STATEMENT_PASSWORD=…      # only if the PDF is encrypted
 go run . ../../data/statements/account_statement.pdf
+
+# With the invoices that go with it — see Invoices above for the middle step.
+go run . --invoices ../../data/invoices --prepare  sheet.json    ../../data/statements/account_statement.pdf
+go run . --invoices ../../data/invoices --readings readings.json ../../data/statements/account_statement.pdf --dry-run
+go run . --invoices ../../data/invoices --readings readings.json ../../data/statements/account_statement.pdf
+
+# The personal ones need nothing here: the database's own rules are applied on
+# every import (see Personal transactions, above).
 ```
 
 `go build -o import-statement .` gives a standalone binary instead, which needs
@@ -265,14 +504,17 @@ the summary boxes printed on page 1 — the quickest way to confirm a clean pars
 — and then `inserted` / `skipped`.
 
 `--source NAME` overrides the `source_statement` label (it defaults to the
-filename); `--password-env VAR` reads the password from a different variable.
+filename); `--password-env VAR` reads the password from a different variable; and
+`--match-window N` widens or narrows how far an invoice may sit from its
+payment, and `--amount-tolerance N` how much rounding is allowed between an
+invoice's total and what was paid.
 The only dependency is `github.com/ledongthuc/pdf` (BSD, no transitive deps),
-which reads both AES- and RC4-encrypted statements.
+which reads both AES- and RC4-encrypted statements, and reads the invoices too.
 
 ### Setup
 
-1. **Run the migration** — paste `db/003_transactions.sql` into the SQL editor
-   (or `supabase db push`). Idempotent.
+1. **Run the migration** — paste `db/003_books.sql` into the SQL editor (or
+   `supabase db push`). Idempotent.
 2. **Set the import secret.** This function is not called by the browser, so it
    has no origin allowlist; the shared secret is its only authentication, and
    while it is unset the endpoint refuses everything (`503`) — it fails closed,
@@ -288,6 +530,10 @@ which reads both AES- and RC4-encrypted statements.
    supabase functions deploy import-transactions --no-verify-jwt
    ```
 
+   Redeploy it before the first `--invoices` run: a deployment predating the
+   claims ignores them and files nothing. The importer says so when it happens,
+   rather than reporting a clean import that claimed nothing.
+
 Nothing here is given a service-role key: the machine running the import holds
 only `IMPORT_TOKEN`, which can do exactly one thing — append statement rows.
 
@@ -302,16 +548,22 @@ answers it a month at a time — one row per calendar month:
 | `income` | everything that came in — every credit |
 | `expenses` | everything that went out — every debit, fees included |
 | `business_expenses` | the slice of those expenses claimed as deductible |
-| `transaction_count` | every transaction in the month, claimed or not — how you tell "no income" from "never imported" |
+| `personal_expenses` | the slice marked personal, as a positive total |
+| `personal_income` | the month's credits marked personal |
+| `transaction_count` | every transaction in the month, classified or not — how you tell "no income" from "never imported" |
+| `classified_count` | how many of them have been said to be business or personal — how you tell "been through it" from "imported it" |
 
 `income` and `expenses` are the month's two raw sides, so `income - expenses` is
 its net movement — the same figure the statement's own balance chain steps
 through, which is what makes the summary checkable against the PDF.
-`business_expenses` is a **subset** of `expenses`, never a separate total: it can
-only ever be smaller, because a claim is made against a debit and can never
-exceed it.
+`business_expenses` and `personal_expenses` are both **subsets** of `expenses`,
+never separate totals: a claim or a mark is made against a debit and can never
+exceed it. Marking something personal deliberately does **not** remove it from
+`income` or `expenses` — those stay the month's two raw sides, so the summary
+stays checkable against the statement's own balance chain, which is the one
+property that would be lost by filtering them.
 
-Only one of the three asks anything of you.
+Nothing but the classification asks anything of you.
 
 ### Income and expenses — counted, not classified
 
@@ -325,54 +577,92 @@ expense. If that starts to matter, the place to fix it is the income (or
 expenses) filter in `refresh_monthly_aggregations`, fed by whatever says a credit
 is not income — a rule per bank category, a column on `transactions`, or both.
 
-### Business expenses — a claim, with its proof
+### Classifications — what each transaction was
 
-Nothing is deductible until it is **claimed**. A row in **`business_expenses`**
-is the assertion "this payment was a business expense, and here is what backs it
-up", and the month's total is the sum of those rows — never inferred from a
-description or a bank category, so it never has to be guessed at.
+**`transaction_classifications`** (`db/003_books.sql`) holds one row
+per transaction saying what it was: `kind` is `business` or `personal`. The two
+are one fact with two values, and they are mutually exclusive — a payment is one
+or the other, never both — so they share a table, where `transaction_id` being
+`UNIQUE` makes that exclusivity free. Two tables would need a pair of
+cross-table triggers to say the same thing.
+
+Nothing is deductible until it is **claimed**: a `business` row is the assertion
+"this payment was a business expense, and here is what backs it up", and the
+month's total is the sum of those rows — never inferred from a description or a
+bank category. A `personal` row asserts only "this was not the business's",
+which needs no proof and offers none.
+
+What differs between them is evidence, which is why one table does not mean one
+shape:
+
+| column | business | personal |
+| --- | --- | --- |
+| `transaction_id` | the transaction — `UNIQUE`, so nothing is classified twice, and `ON DELETE CASCADE` | same |
+| `kind` | `business` | `personal` |
+| `source` | how it was decided: `invoice`, `rule` or `by hand` | same |
+| `purpose` | what the money was for — **required** | must be `NULL` |
+| `deductible_amount` | apportionment for a partly-business cost; `NULL` claims the whole payment | must be `NULL` |
+| `expense_type`, `supplier`, `invoice_number`, `invoice_date`, `proof_url` | the supporting document | must be `NULL` |
+| `note` | anything else worth recording | same |
+
+`purpose` is required of a deduction because what the money was for is the one
+thing it cannot be defended without, and the thing that is impossible to
+reconstruct a year later. It is *not* required of a personal row: what a private
+payment was for is nobody's business, and demanding it would make marking a
+month's groceries a writing exercise. In the other direction, a personal row may
+carry none of the document fields — recording a supplier or an invoice number
+against one would assert a document covers it that does not. Both are `CHECK`
+constraints (`business_needs_purpose`, `personal_claims_nothing`).
 
 ```sql
-INSERT INTO business_expenses
-  (transaction_id, purpose, expense_type, supplier, invoice_number, invoice_date, proof_url)
+-- A claim, with its proof.
+INSERT INTO transaction_classifications
+  (transaction_id, kind, source, purpose, expense_type, supplier, invoice_number, invoice_date, proof_url)
 VALUES
-  (412, 'Mountboard and glass for the January print run', 'materials',
+  (412, 'business', 'by hand', 'Mountboard and glass for the January print run', 'materials',
    'Art Supplies CC', 'INV-2026-0041', '2026-01-11', 'https://…/inv-41.pdf');
+
+-- Not the business's. That is the whole of it.
+INSERT INTO transaction_classifications (transaction_id, kind, source, note)
+VALUES (413, 'personal', 'by hand', 'school fees');
 ```
 
-| column | meaning |
-| --- | --- |
-| `transaction_id` | the payment claimed — `UNIQUE`, so nothing is claimed twice, and `ON DELETE CASCADE`, since a claim against a deleted transaction is meaningless |
-| `purpose` | what the money was for — **required** |
-| `deductible_amount` | apportionment for a partly-business cost; `NULL` (the normal case) claims the whole payment |
-| `expense_type` | kind of expense, for grouping at tax time — free text |
-| `supplier`, `invoice_number`, `invoice_date`, `proof_url` | the supporting document; `invoice_date` is separate because an invoice is often dated before the payment clears |
-| `note` | anything else worth recording |
+`source` records how the row was decided, which is how far it should be trusted:
+`invoice` means a document was matched to the payment, `rule` that a pattern
+matched the statement's own description, `by hand` that someone decided. It
+defaults to `by hand`, because a row inserted without saying where it came from
+was put there by a person.
 
-`purpose` is `NOT NULL` on purpose: what the money was for is the one thing a
-deduction cannot be defended without, and the thing that is impossible to
-reconstruct a year later — so it is required while it is still known.
-`proof_url` left `NULL` means the claim is made but the paperwork is not filed
-yet, which is worth querying for before year end:
+`proof_url` left `NULL` on a claim means the paperwork is not filed yet, which is
+worth querying for before year end — as is what has not been classified at all:
 
 ```sql
-SELECT t.transaction_date, t.description, b.purpose
-  FROM business_expenses b JOIN transactions t ON t.id = b.transaction_id
- WHERE b.proof_url IS NULL ORDER BY t.transaction_date;
+-- Claimed, but the document is not filed.
+SELECT t.transaction_date, t.description, c.purpose
+  FROM transaction_classifications c JOIN transactions t ON t.id = c.transaction_id
+ WHERE c.kind = 'business' AND c.proof_url IS NULL ORDER BY t.transaction_date;
+
+-- Still to go through.
+SELECT t.transaction_date, t.description, t.amount FROM transactions t
+ WHERE NOT EXISTS (SELECT 1 FROM transaction_classifications c WHERE c.transaction_id = t.id)
+ ORDER BY t.transaction_date;
 ```
 
 Two rules a `CHECK` cannot express are enforced by a row trigger, because both
-need the referenced transaction: only **money out** can be claimed (a refund
-arrives as a credit, but that reduces an existing claim rather than being one),
-and `deductible_amount` can never exceed the payment.
+need the referenced transaction, and both are about deductions so both apply to
+`business` rows only: only **money out** can be claimed (a refund arrives as a
+credit, but that reduces an existing claim rather than being one), and
+`deductible_amount` can never exceed the payment. Money **in** can be personal —
+a private transfer into the account is money that arrived and is not the
+business's — it simply can never be claimed.
 
 The claim carries no date of its own — the expense belongs to the month the money
 moved, like everything else here.
 
 ### How it stays current
 
-Nothing has to be run after an import. **`db/004_monthly_aggregations.sql`** puts
-statement-level triggers on `transactions` and on `business_expenses`
+Nothing has to be run after an import. **`db/003_books.sql`** puts
+statement-level triggers on `transactions` and on `transaction_classifications`
 (insert / update / delete / truncate) that recompute exactly the months affected
 — including *both* months when a transaction's date moves across a boundary, or
 when a claim is re-pointed at a transaction in another month.
@@ -396,16 +686,29 @@ leaving a stale one behind.
 
 ### Setup
 
-1. **Run the migration** — paste `db/004_monthly_aggregations.sql` into the SQL
-   editor (or `supabase db push`), after `db/003_transactions.sql`. Idempotent,
-   and it ends by backfilling every month already in the ledger, so an existing
-   ledger is summarised the moment it runs.
-2. **Claim as you go** — nothing is required up front; add a `business_expenses`
-   row for each payment you intend to deduct.
+1. **Run the migration** — `db/003_books.sql` carries all of it, and ends by
+   backfilling every month already in the ledger, so an existing ledger is
+   summarised the moment it runs. Idempotent, so re-running it over a database
+   that already has the tables simply recomputes what is already correct.
 
-Both tables are RLS on with no policies, like the ledger they derive from.
-There is no edge function and no import path: the site never touches them, and
-the owner reads and writes them from the dashboard.
+   To rebuild the books from scratch, drop them first — **deliberately, and
+   never as part of running the file**, since it takes the ledger with it:
+
+   ```sql
+   DROP TABLE IF EXISTS monthly_aggregations, transaction_classifications,
+                        personal_rules, transactions CASCADE;
+   ```
+2. **Classify as you go** — nothing is required up front; add a row for each
+   payment you intend to deduct, or let the importer add it from that payment's
+   invoice, and let the rules mark the personal ones (*Invoices* and *Personal
+   transactions*, above).
+
+Both tables are RLS on with no policies, like the ledger they derive from. The
+site never touches either of them, and `monthly_aggregations` has no write path
+at all — it is maintained entirely by the triggers above. The one way into
+`transaction_classifications` from outside the dashboard is
+`import-transactions`, which writes only alongside the statement the transaction
+came from.
 
 ## Mailing-list subscriptions
 
