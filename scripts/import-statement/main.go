@@ -78,6 +78,7 @@ func run() error {
 		readings    = flag.String("readings", "", "with --invoices: the filled-in worksheet readings to claim from")
 		window      = flag.Int("match-window", defaultMatchWindow, "days either side of an invoice's date a payment may fall")
 		tolerance   = flag.Float64("amount-tolerance", defaultTolerance, "rands a payment may differ from an invoice's total by, for rounding")
+		claimFees   = flag.Bool("claim-fees", true, "also claim the bank's charge for making a claimed payment")
 	)
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: import-statement [flags] <statement.pdf>")
@@ -141,7 +142,7 @@ func run() error {
 	var claims []Claim
 	if *readings != "" {
 		var err error
-		if claims, err = claimInvoices(*readings, *invoiceDir, *window, *tolerance, txs); err != nil {
+		if claims, err = claimInvoices(*readings, *invoiceDir, *window, *tolerance, *claimFees, txs); err != nil {
 			return err
 		}
 	}
@@ -341,7 +342,7 @@ const defaultTolerance = 1.00
 // The matching happens here, in Go, from the amounts and dates alone. Whoever
 // read the invoices does not get a say in it: they write down what a document
 // says, and the ledger decides whether a payment agrees.
-func claimInvoices(readings, dir string, window int, tolerance float64, txs []Transaction) ([]Claim, error) {
+func claimInvoices(readings, dir string, window int, tolerance float64, claimFees bool, txs []Transaction) ([]Claim, error) {
 	invoices, warnings, err := loadReadings(readings, dir)
 	if err != nil {
 		return nil, err
@@ -351,10 +352,21 @@ func claimInvoices(readings, dir string, window int, tolerance float64, txs []Tr
 	}
 
 	claims, unmatched := matchInvoices(invoices, txs, window, tolerance)
+	matched := len(claims)
+	if claimFees {
+		claims = withFeeClaims(claims, txs)
+	}
 
-	fmt.Printf("\nRead %d invoice(s) from %s, matched %d\n", len(invoices), dir, len(claims))
+	fmt.Printf("\nRead %d invoice(s) from %s, matched %d\n", len(invoices), dir, matched)
 	for _, c := range claims {
-		inv, tx := c.Invoice, c.Transaction
+		tx := c.Transaction
+		// A fee is printed under the payment it was charged on, which is the
+		// line above it — it is that payment's charge, not a claim of its own.
+		if c.FeeOn != "" {
+			fmt.Printf("    + %s %10.2f  %s\n", tx.TransactionDate, tx.Amount, tx.Description)
+			continue
+		}
+		inv := c.Invoice
 		fmt.Printf("  %-28s %10.2f  %s — %s\n", inv.File, inv.Total, supplierOr(inv), inv.Purpose)
 		fmt.Printf("    → %s %10.2f  %s (%s%s)\n", tx.TransactionDate, tx.Amount, tx.Description,
 			apart(c.DaysApart), rounded(c.Rounding))

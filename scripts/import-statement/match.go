@@ -47,6 +47,12 @@ type Claim struct {
 	Transaction Transaction
 	DaysApart   int   // payment date minus invoice date, for the dry-run listing
 	Rounding    int64 // cents the payment exceeded the invoice by, signed; 0 when exact
+
+	// Set when this claim is the bank's charge for making the payment rather
+	// than the payment itself: the description of the payment it was charged
+	// on. Its Invoice is that payment's invoice, which is what the charge was
+	// incurred for.
+	FeeOn string
 }
 
 // Unmatched is an invoice that was not tied to a payment, and why not.
@@ -187,6 +193,48 @@ func matchInvoices(invoices []Invoice, txs []Transaction, windowDays int, tolera
 	}
 
 	return claims, unmatched
+}
+
+// withFeeClaims adds, for every claimed payment, the bank's charge for making
+// it.
+//
+// A charge has no invoice and never will, so nothing above can reach it: the
+// statement line is the whole of the evidence. But it needs no invoice. The
+// parser splits one statement line carrying both an amount and a Fee* into two
+// transactions — the payment, and "<description> (fee)" — so the charge is the
+// same line as the payment, and a charge for making a payment that is deductible
+// is deductible on the same grounds. That is a stronger link than any invoice
+// match: it is not inferred at all, it is how the row came to exist.
+//
+// The fee therefore follows its payment. It is never claimed on its own, so a
+// charge on a private payment is not swept up by this.
+func withFeeClaims(claims []Claim, txs []Transaction) []Claim {
+	out := make([]Claim, 0, len(claims))
+	for _, c := range claims {
+		out = append(out, c)
+
+		for _, tx := range txs {
+			if tx.Amount >= 0 || tx.TransactionType != "fee" {
+				continue
+			}
+			// Same line of the statement — same date and the verbatim line the
+			// natural key is built on — and the description the parser derives
+			// for the fee it split off.
+			if tx.TransactionDate != c.Transaction.TransactionDate ||
+				tx.RawReference != c.Transaction.RawReference ||
+				tx.Description != c.Transaction.Description+" (fee)" {
+				continue
+			}
+			out = append(out, Claim{
+				Invoice:     c.Invoice,
+				Transaction: tx,
+				DaysApart:   c.DaysApart,
+				FeeOn:       c.Transaction.Description,
+			})
+			break
+		}
+	}
+	return out
 }
 
 // candidatesFor returns the payments an invoice could belong to, best first, or
@@ -330,6 +378,23 @@ type claimPayload struct {
 }
 
 func (c Claim) payload() claimPayload {
+	// A bank charge carries none of the invoice's own detail — it was not
+	// invoiced, and putting the supplier's number on it would say a document
+	// covers it that does not. What it carries is what the charge was for.
+	if c.FeeOn != "" {
+		return claimPayload{
+			Transaction: txRef{
+				TransactionDate: c.Transaction.TransactionDate,
+				Description:     c.Transaction.Description,
+				Amount:          c.Transaction.Amount,
+				RawReference:    c.Transaction.RawReference,
+			},
+			Purpose:     feePurpose(c.Invoice),
+			ExpenseType: "bank charges",
+			Note:        "bank charge on the payment claimed from " + c.Invoice.File,
+		}
+	}
+
 	return claimPayload{
 		Transaction: txRef{
 			TransactionDate: c.Transaction.TransactionDate,
@@ -347,6 +412,15 @@ func (c Claim) payload() claimPayload {
 		// reader had to qualify about it.
 		Note: note(c.Invoice),
 	}
+}
+
+// feePurpose says what the charge was incurred for, which is what makes it
+// deductible — naming the payment, not the bank.
+func feePurpose(inv Invoice) string {
+	if inv.Supplier != "" {
+		return "Bank charge on the payment to " + inv.Supplier
+	}
+	return "Bank charge on the payment for " + inv.Purpose
 }
 
 func note(inv Invoice) string {

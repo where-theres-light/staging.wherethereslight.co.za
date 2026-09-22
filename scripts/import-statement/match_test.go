@@ -255,3 +255,94 @@ func TestPayloadCarriesTheInvoiceAndItsPaymentsKey(t *testing.T) {
 		t.Errorf("note = %q, want the file and the reader's caveat", got.Note)
 	}
 }
+
+// A bank charge is the one claim with no invoice behind it: the statement line
+// that carries the payment carries the charge, so it follows the payment rather
+// than being matched to anything.
+
+// feeFor builds the row the parser splits off a statement line that carried both
+// an amount and a Fee* — same date, same verbatim line, description plus "(fee)".
+func feeFor(payment Transaction, amount float64) Transaction {
+	return Transaction{
+		TransactionDate: payment.TransactionDate,
+		Description:     payment.Description + " (fee)",
+		Amount:          amount,
+		TransactionType: "fee",
+		RawReference:    payment.RawReference,
+	}
+}
+
+func TestTheBankChargeFollowsThePaymentItWasChargedOn(t *testing.T) {
+	payment := tx("2026-09-04", "Banking App External PayShap Payment: Orms Pty Ltd", -196.00)
+	txs := []Transaction{payment, feeFor(payment, -6.00)}
+
+	claims, _ := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-04", "Orms Pty Ltd", 195.99)}, txs, 14, defaultTolerance)
+	claims = withFeeClaims(claims, txs)
+
+	if len(claims) != 2 {
+		t.Fatalf("expected the payment and its charge, got %d: %v", len(claims), claims)
+	}
+	fee := claims[1]
+	if fee.Transaction.Amount != -6.00 || fee.FeeOn != payment.Description {
+		t.Fatalf("second claim is not the charge on the payment: %+v", fee)
+	}
+
+	// It carries what it was for, and none of the invoice's own identifiers —
+	// no document covers the charge, and saying one does would be false.
+	got := fee.payload()
+	if got.Purpose != "Bank charge on the payment to Orms Pty Ltd" {
+		t.Errorf("purpose = %q, want the payment it was charged on", got.Purpose)
+	}
+	if got.ExpenseType != "bank charges" {
+		t.Errorf("expense_type = %q, want bank charges", got.ExpenseType)
+	}
+	if got.InvoiceNumber != "" || got.InvoiceDate != "" || got.Supplier != "" {
+		t.Errorf("the charge claims an invoice's details as its own: %+v", got)
+	}
+	if !strings.Contains(got.Note, "orms.pdf") {
+		t.Errorf("note = %q, want the invoice whose payment it was charged on", got.Note)
+	}
+}
+
+func TestAChargeOnAnUnclaimedPaymentIsLeftAlone(t *testing.T) {
+	// Every payment on a statement has charges; only the ones on payments that
+	// were claimed are business expenses.
+	claimed := tx("2026-09-04", "Banking App External Payment: Orms Pty Ltd", -588.00)
+	private := tx("2026-09-04", "Banking App External Payment: Miss L Small", -800.00)
+	txs := []Transaction{claimed, feeFor(claimed, -2.00), private, feeFor(private, -2.00)}
+
+	claims, _ := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-04", "Orms Pty Ltd", 588)}, txs, 14, defaultTolerance)
+	claims = withFeeClaims(claims, txs)
+
+	if len(claims) != 2 {
+		t.Fatalf("expected one payment and one charge, got %d: %v", len(claims), claims)
+	}
+	for _, c := range claims {
+		if strings.Contains(c.Transaction.Description, "Miss L Small") {
+			t.Fatalf("claimed a charge on a payment that was not claimed: %+v", c)
+		}
+	}
+}
+
+func TestAPaymentWithNoChargeAddsNothing(t *testing.T) {
+	txs := []Transaction{tx("2026-09-04", "Orms Bellville Cape Town (Card 5581)", -256.00)}
+
+	claims, _ := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-04", "Orms Pty Ltd", 256)}, txs, 14, defaultTolerance)
+	if got := withFeeClaims(claims, txs); len(got) != 1 {
+		t.Fatalf("expected the payment alone, got %d: %v", len(got), got)
+	}
+}
+
+func TestAChargeOnAnotherLineIsNotTaken(t *testing.T) {
+	// Same day, same wording, different statement line: the raw reference is
+	// what says they are one line, and it is the only thing that does.
+	payment := tx("2026-09-04", "Banking App External Payment: Orms Pty Ltd", -588.00)
+	elsewhere := feeFor(payment, -2.00)
+	elsewhere.RawReference = "2026-09-04 Banking App External Payment: Orms Pty Ltd -250.00 2.00 900.00"
+	txs := []Transaction{payment, elsewhere}
+
+	claims, _ := matchInvoices([]Invoice{invoice("orms.pdf", "2026-09-04", "Orms Pty Ltd", 588)}, txs, 14, defaultTolerance)
+	if got := withFeeClaims(claims, txs); len(got) != 1 {
+		t.Fatalf("took a charge from another statement line: %v", got)
+	}
+}

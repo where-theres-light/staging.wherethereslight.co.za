@@ -359,7 +359,28 @@ decides whether a payment agrees. It is also why claiming belongs to this comman
 rather than a separate one — the payments an invoice is matched against are the
 ones the statement scan has just produced.
 
-#### What gets written
+###### Bank charges follow their payment
+
+A bank charge has no invoice and never will, so nothing above can reach it — and
+it needs none. The parser splits a statement line carrying both an amount and a
+`Fee*` into two transactions, the payment and `<description> (fee)`, so the
+charge **is** the same line as the payment: a stronger link than any invoice
+match, since it is not inferred at all but how the row came to exist. A charge
+for making a payment that is deductible is deductible on the same grounds, so
+each claimed payment's charge is claimed with it:
+
+```
+  → 2026-09-04  -196.00  …PayShap Payment: Orms Pty Ltd (paid 3 days earlier, 0.01 more than the invoice)
+  + 2026-09-04    -6.00  …PayShap Payment: Orms Pty Ltd (fee)
+```
+
+The charge is never claimed on its own, so the charges on private payments are
+not swept up. It carries `expense_type: bank charges`, a purpose naming the
+payment it was charged on, and none of the invoice's own identifiers — no
+document covers the charge, and recording a supplier's invoice number against it
+would say one does. `--claim-fees=false` leaves charges alone.
+
+## What gets written
 
 Each match is posted **with the statement, in the same request**, as a
 `business_expenses` row: `purpose` from what was bought, plus `supplier`,
