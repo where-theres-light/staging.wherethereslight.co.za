@@ -169,11 +169,13 @@ Standalone **Go** programs that are not part of the site build and never ship in
   worksheet of every invoice's text for a Claude Code session (or a person) to
   read, and `--readings` takes the filled-in records back, ties each to a payment
   of its total (allowing a little rounding — R195.99 is settled with R196.00), and
-  posts the matches as `business_expenses` claims in the same request, each with
-  the bank's charge for making that payment, which the parser split off the same
-  statement line. Reading an invoice is a judgement — the layout changes from
-  company to company — so the program does not make it; matching is all it
-  decides. No API, no key. See *Bank transactions* in `supabase/README.md`.
+  posts the matches as `transaction_classifications` rows in the same request,
+  each with the bank's charge for making that payment, which the parser split off
+  the same statement line. Reading an invoice is a judgement — the layout changes
+  from company to company — so the program does not make it; matching is all it
+  decides. `--personal <rules>` marks the other side of the books, by pattern
+  rather than by document, so what is left is what has not been looked at. No
+  API, no key. See *Bank transactions* in `supabase/README.md`.
 
 Go rather than Deno because the statement table is read by **column position**
 rather than by splitting text, which needs the x coordinate of every fragment —

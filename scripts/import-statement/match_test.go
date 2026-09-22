@@ -111,7 +111,7 @@ func TestRefusesTwoEquallyGoodPayments(t *testing.T) {
 }
 
 func TestTwoInvoicesCannotClaimThePaymentBetweenThem(t *testing.T) {
-	// One payment backs at most one claim (business_expenses.transaction_id is
+	// One payment backs at most one claim (transaction_classifications is
 	// UNIQUE), and nothing here can say which invoice it belongs to — so both
 	// are withdrawn, including the one that matched first.
 	txs := []Transaction{tx("2026-09-04", "Banking App External Payment: Orms Pty Ltd", -588.00)}

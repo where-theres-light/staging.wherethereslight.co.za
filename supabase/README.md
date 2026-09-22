@@ -4,13 +4,16 @@ The production catalogue, checkout/orders, mailing list, and page-visit metrics
 live in Supabase. The offline `dev` build never touches it — it seeds the same
 catalogue data from `ui/demo.js`.
 
-The schema is **four migrations**: `db/001_catalog.sql` for the public,
+The schema is **five migrations**: `db/001_catalog.sql` for the public,
 read-only product catalogue, `db/002_sessions.sql` for everything the site
 writes — `sessions` (the hub) plus every table that references it (`orders`,
 `subscriptions`, `page_visits`) and the shared `rate_limits` — and, for the
 books, which the site never touches at all, `db/003_transactions.sql` (the bank
-ledger) and `db/004_monthly_aggregations.sql` (the month-by-month summary
-derived from it). See *Bank transactions* and *Monthly aggregations* below.
+ledger), `db/004_monthly_aggregations.sql` (the month-by-month summary derived
+from it) and `db/005_classifications.sql` (what each transaction was — business
+or personal — which generalises 004's `business_expenses` into
+`transaction_classifications`). See *Bank transactions* and *Monthly
+aggregations* below.
 
 ## Sessions (the hub)
 
@@ -359,7 +362,7 @@ decides whether a payment agrees. It is also why claiming belongs to this comman
 rather than a separate one — the payments an invoice is matched against are the
 ones the statement scan has just produced.
 
-###### Bank charges follow their payment
+#### Bank charges follow their payment
 
 A bank charge has no invoice and never will, so nothing above can reach it — and
 it needs none. The parser splits a statement line carrying both an amount and a
@@ -380,10 +383,10 @@ payment it was charged on, and none of the invoice's own identifiers — no
 document covers the charge, and recording a supplier's invoice number against it
 would say one does. `--claim-fees=false` leaves charges alone.
 
-## What gets written
+#### What gets written
 
 Each match is posted **with the statement, in the same request**, as a
-`business_expenses` row: `purpose` from what was bought, plus `supplier`,
+`transaction_classifications` row: `purpose` from what was bought, plus `supplier`,
 `invoice_number`, `invoice_date` and `expense_type` as read, and `note` naming
 the file it came from. The claim identifies its payment by the `transactions`
 natural key rather than by id — the importer never reads the database, so it has
@@ -399,6 +402,62 @@ Drive folder; `note` records which file it was.
 
 `go test ./scripts/import-statement/` covers the matching rules with synthetic
 invoices and rows, and the readings file with every way it can be wrong.
+
+### Personal transactions — marked by rule
+
+A business expense is claimed one document at a time, because each one has to be
+substantiated. Personal spending is the opposite shape: there is nothing to
+substantiate, there is far more of it, and what identifies it is the statement's
+own description — Pick n Pay is Pick n Pay every month. So it is marked by rule,
+from a file you keep:
+
+```json
+{ "rules": [
+  { "category": "Groceries", "note": "household groceries" },
+  { "category": "Fuel",      "note": "private vehicle" },
+  { "match": "wizardz",      "note": "school" }
+] }
+```
+
+`match` is a case-insensitive substring of the description; `category` is the
+bank's own category for the row, matched whole — Capitec categorises most card
+purchases, which makes it the broader lever. Give a rule both and both must
+match. A rule with neither is refused rather than matching the whole statement,
+and so is a misspelt field name, since `"matches"` would silently become exactly
+that. The first rule that matches a transaction wins, so the file reads top to
+bottom.
+
+```bash
+go run . --personal ../../data/personal-rules.json statement.pdf
+```
+
+The rules run **after** the invoices and never touch a payment they claimed: an
+invoice matched to a payment is evidence, a pattern in a description is a habit,
+and where they disagree the evidence wins without argument. The row a rule writes
+carries `source: rule` and nothing else but its note — no purpose, no supplier,
+no invoice — so it can never be mistaken for a claim, and a row someone decided
+by hand (`source: by hand`) can be told from one a pattern decided.
+
+The report is the point of it:
+
+```
+Marked 15 transaction(s) personal from personal-rules.json
+  Groceries                          10
+  Fuel                               2
+  …
+  26 transaction(s) in this statement were neither claimed nor matched by a rule
+```
+
+That last number is what marking personal is *for*. An unclassified transaction
+means either personal or not looked at yet, and only saying which turns "I
+imported September" into "I have been through September". A rule that recognised
+nothing is reported too — a rule for a shop you no longer use is worth knowing
+about. The count is deliberately phrased as "neither claimed nor matched" rather
+than "unclassified": this run cannot see what was classified before it, and
+saying more than it knows is how a books tool starts lying.
+
+The rules file lives in `data/` with the statements and invoices, git-ignored:
+it is a list of where the household shops.
 
 ### Using it
 
@@ -425,6 +484,10 @@ go run . ../../data/statements/account_statement.pdf
 go run . --invoices ../../data/invoices --prepare  sheet.json    ../../data/statements/account_statement.pdf
 go run . --invoices ../../data/invoices --readings readings.json ../../data/statements/account_statement.pdf --dry-run
 go run . --invoices ../../data/invoices --readings readings.json ../../data/statements/account_statement.pdf
+
+# And the personal ones, in the same run.
+go run . --invoices ../../data/invoices --readings readings.json \
+         --personal ../../data/personal-rules.json ../../data/statements/account_statement.pdf
 ```
 
 `go build -o import-statement .` gives a standalone binary instead, which needs
@@ -437,8 +500,9 @@ the summary boxes printed on page 1 — the quickest way to confirm a clean pars
 `--source NAME` overrides the `source_statement` label (it defaults to the
 filename); `--password-env VAR` reads the password from a different variable; and
 `--match-window N` widens or narrows how far an invoice may sit from its
-payment, and `--amount-tolerance N` how much rounding is allowed between an
-invoice's total and what was paid.
+payment, `--amount-tolerance N` how much rounding is allowed between an invoice's
+total and what was paid, and `--personal FILE` marks the personal transactions
+from a rules file.
 The only dependency is `github.com/ledongthuc/pdf` (BSD, no transitive deps),
 which reads both AES- and RC4-encrypted statements, and reads the invoices too.
 
@@ -479,16 +543,22 @@ answers it a month at a time — one row per calendar month:
 | `income` | everything that came in — every credit |
 | `expenses` | everything that went out — every debit, fees included |
 | `business_expenses` | the slice of those expenses claimed as deductible |
-| `transaction_count` | every transaction in the month, claimed or not — how you tell "no income" from "never imported" |
+| `personal_expenses` | the slice marked personal, as a positive total |
+| `personal_income` | the month's credits marked personal |
+| `transaction_count` | every transaction in the month, classified or not — how you tell "no income" from "never imported" |
+| `classified_count` | how many of them have been said to be business or personal — how you tell "been through it" from "imported it" |
 
 `income` and `expenses` are the month's two raw sides, so `income - expenses` is
 its net movement — the same figure the statement's own balance chain steps
 through, which is what makes the summary checkable against the PDF.
-`business_expenses` is a **subset** of `expenses`, never a separate total: it can
-only ever be smaller, because a claim is made against a debit and can never
-exceed it.
+`business_expenses` and `personal_expenses` are both **subsets** of `expenses`,
+never separate totals: a claim or a mark is made against a debit and can never
+exceed it. Marking something personal deliberately does **not** remove it from
+`income` or `expenses` — those stay the month's two raw sides, so the summary
+stays checkable against the statement's own balance chain, which is the one
+property that would be lost by filtering them.
 
-Only one of the three asks anything of you.
+Nothing but the classification asks anything of you.
 
 ### Income and expenses — counted, not classified
 
@@ -502,52 +572,84 @@ expense. If that starts to matter, the place to fix it is the income (or
 expenses) filter in `refresh_monthly_aggregations`, fed by whatever says a credit
 is not income — a rule per bank category, a column on `transactions`, or both.
 
-### Business expenses — a claim, with its proof
+### Classifications — what each transaction was
 
-Nothing is deductible until it is **claimed**. A row in **`business_expenses`**
-is the assertion "this payment was a business expense, and here is what backs it
-up", and the month's total is the sum of those rows — never inferred from a
-description or a bank category, so it never has to be guessed at.
+**`transaction_classifications`** (`db/005_classifications.sql`) holds one row
+per transaction saying what it was: `kind` is `business` or `personal`. The two
+are one fact with two values, and they are mutually exclusive — a payment is one
+or the other, never both — so they share a table, where `transaction_id` being
+`UNIQUE` makes that exclusivity free. Two tables would need a pair of
+cross-table triggers to say the same thing.
 
-A claim is made either by hand, as below, or by the statement importer from the
-supplier invoice it belongs to — see *Invoices* under *Bank transactions* above.
-Either way it is the same row, and the assertion is the same: what makes the
-importer's version safe is that it only ever claims a payment of exactly an
-invoice's total.
+Nothing is deductible until it is **claimed**: a `business` row is the assertion
+"this payment was a business expense, and here is what backs it up", and the
+month's total is the sum of those rows — never inferred from a description or a
+bank category. A `personal` row asserts only "this was not the business's",
+which needs no proof and offers none.
+
+What differs between them is evidence, which is why one table does not mean one
+shape:
+
+| column | business | personal |
+| --- | --- | --- |
+| `transaction_id` | the transaction — `UNIQUE`, so nothing is classified twice, and `ON DELETE CASCADE` | same |
+| `kind` | `business` | `personal` |
+| `source` | how it was decided: `invoice`, `rule` or `by hand` | same |
+| `purpose` | what the money was for — **required** | must be `NULL` |
+| `deductible_amount` | apportionment for a partly-business cost; `NULL` claims the whole payment | must be `NULL` |
+| `expense_type`, `supplier`, `invoice_number`, `invoice_date`, `proof_url` | the supporting document | must be `NULL` |
+| `note` | anything else worth recording | same |
+
+`purpose` is required of a deduction because what the money was for is the one
+thing it cannot be defended without, and the thing that is impossible to
+reconstruct a year later. It is *not* required of a personal row: what a private
+payment was for is nobody's business, and demanding it would make marking a
+month's groceries a writing exercise. In the other direction, a personal row may
+carry none of the document fields — recording a supplier or an invoice number
+against one would assert a document covers it that does not. Both are `CHECK`
+constraints (`business_needs_purpose`, `personal_claims_nothing`).
 
 ```sql
-INSERT INTO business_expenses
-  (transaction_id, purpose, expense_type, supplier, invoice_number, invoice_date, proof_url)
+-- A claim, with its proof.
+INSERT INTO transaction_classifications
+  (transaction_id, kind, source, purpose, expense_type, supplier, invoice_number, invoice_date, proof_url)
 VALUES
-  (412, 'Mountboard and glass for the January print run', 'materials',
+  (412, 'business', 'by hand', 'Mountboard and glass for the January print run', 'materials',
    'Art Supplies CC', 'INV-2026-0041', '2026-01-11', 'https://…/inv-41.pdf');
+
+-- Not the business's. That is the whole of it.
+INSERT INTO transaction_classifications (transaction_id, kind, source, note)
+VALUES (413, 'personal', 'by hand', 'school fees');
 ```
 
-| column | meaning |
-| --- | --- |
-| `transaction_id` | the payment claimed — `UNIQUE`, so nothing is claimed twice, and `ON DELETE CASCADE`, since a claim against a deleted transaction is meaningless |
-| `purpose` | what the money was for — **required** |
-| `deductible_amount` | apportionment for a partly-business cost; `NULL` (the normal case) claims the whole payment |
-| `expense_type` | kind of expense, for grouping at tax time — free text |
-| `supplier`, `invoice_number`, `invoice_date`, `proof_url` | the supporting document; `invoice_date` is separate because an invoice is often dated before the payment clears |
-| `note` | anything else worth recording |
+`source` records how the row was decided, which is how far it should be trusted:
+`invoice` means a document was matched to the payment, `rule` that a pattern
+matched the statement's own description, `by hand` that someone decided. It
+defaults to `by hand`, because a row inserted without saying where it came from
+was put there by a person.
 
-`purpose` is `NOT NULL` on purpose: what the money was for is the one thing a
-deduction cannot be defended without, and the thing that is impossible to
-reconstruct a year later — so it is required while it is still known.
-`proof_url` left `NULL` means the claim is made but the paperwork is not filed
-yet, which is worth querying for before year end:
+`proof_url` left `NULL` on a claim means the paperwork is not filed yet, which is
+worth querying for before year end — as is what has not been classified at all:
 
 ```sql
-SELECT t.transaction_date, t.description, b.purpose
-  FROM business_expenses b JOIN transactions t ON t.id = b.transaction_id
- WHERE b.proof_url IS NULL ORDER BY t.transaction_date;
+-- Claimed, but the document is not filed.
+SELECT t.transaction_date, t.description, c.purpose
+  FROM transaction_classifications c JOIN transactions t ON t.id = c.transaction_id
+ WHERE c.kind = 'business' AND c.proof_url IS NULL ORDER BY t.transaction_date;
+
+-- Still to go through.
+SELECT t.transaction_date, t.description, t.amount FROM transactions t
+ WHERE NOT EXISTS (SELECT 1 FROM transaction_classifications c WHERE c.transaction_id = t.id)
+ ORDER BY t.transaction_date;
 ```
 
 Two rules a `CHECK` cannot express are enforced by a row trigger, because both
-need the referenced transaction: only **money out** can be claimed (a refund
-arrives as a credit, but that reduces an existing claim rather than being one),
-and `deductible_amount` can never exceed the payment.
+need the referenced transaction, and both are about deductions so both apply to
+`business` rows only: only **money out** can be claimed (a refund arrives as a
+credit, but that reduces an existing claim rather than being one), and
+`deductible_amount` can never exceed the payment. Money **in** can be personal —
+a private transfer into the account is money that arrived and is not the
+business's — it simply can never be claimed.
 
 The claim carries no date of its own — the expense belongs to the month the money
 moved, like everything else here.
@@ -555,7 +657,7 @@ moved, like everything else here.
 ### How it stays current
 
 Nothing has to be run after an import. **`db/004_monthly_aggregations.sql`** puts
-statement-level triggers on `transactions` and on `business_expenses`
+statement-level triggers on `transactions` and on `transaction_classifications`
 (insert / update / delete / truncate) that recompute exactly the months affected
 — including *both* months when a transaction's date moves across a boundary, or
 when a claim is re-pointed at a transaction in another month.
@@ -579,19 +681,24 @@ leaving a stale one behind.
 
 ### Setup
 
-1. **Run the migration** — paste `db/004_monthly_aggregations.sql` into the SQL
-   editor (or `supabase db push`), after `db/003_transactions.sql`. Idempotent,
-   and it ends by backfilling every month already in the ledger, so an existing
-   ledger is summarised the moment it runs.
-2. **Claim as you go** — nothing is required up front; add a `business_expenses`
-   row for each payment you intend to deduct, or let the importer add it from
-   that payment's invoice (*Invoices*, above).
+1. **Run the migrations** — paste `db/004_monthly_aggregations.sql` and then
+   `db/005_classifications.sql` into the SQL editor (or `supabase db push`),
+   after `db/003_transactions.sql`. Both are idempotent, and each ends by
+   backfilling every month already in the ledger, so an existing ledger is
+   summarised the moment they run. `005` renames `business_expenses` to
+   `transaction_classifications` in place — the claims already in it carry over
+   as `kind: business`, `source: invoice`.
+2. **Classify as you go** — nothing is required up front; add a row for each
+   payment you intend to deduct, or let the importer add it from that payment's
+   invoice, and mark the personal ones by rule (*Invoices* and *Personal
+   transactions*, above).
 
 Both tables are RLS on with no policies, like the ledger they derive from. The
 site never touches either of them, and `monthly_aggregations` has no write path
 at all — it is maintained entirely by the triggers above. The one way into
-`business_expenses` from outside the dashboard is `import-transactions`, which
-writes a claim only alongside the statement the payment came from.
+`transaction_classifications` from outside the dashboard is
+`import-transactions`, which writes only alongside the statement the transaction
+came from.
 
 ## Mailing-list subscriptions
 

@@ -21,10 +21,14 @@
 //
 // With --invoices, the folder's invoices are prepared for reading and then, once
 // read, tied to the payments this statement parsed (match.go) and posted
-// alongside them as `business_expenses` claims. Claiming is part of this command
-// rather than its own because the match needs both halves: an invoice is only
-// ever claimed against a payment of exactly its total, and the payments are what
+// alongside them as `transaction_classifications` rows. Claiming belongs to this
+// command rather than its own because the match needs both halves: an invoice is
+// only ever claimed against a payment of its total, and the payments are what
 // this program has just read off the statement.
+//
+// With --personal, a rules file marks the other side of the books (personal.go).
+// It runs after the invoices and never touches what they claimed — evidence
+// first, habit second — so what neither accounts for is what is left to look at.
 //
 // Environment:
 //
@@ -79,6 +83,7 @@ func run() error {
 		window      = flag.Int("match-window", defaultMatchWindow, "days either side of an invoice's date a payment may fall")
 		tolerance   = flag.Float64("amount-tolerance", defaultTolerance, "rands a payment may differ from an invoice's total by, for rounding")
 		claimFees   = flag.Bool("claim-fees", true, "also claim the bank's charge for making a claimed payment")
+		personal    = flag.String("personal", "", "rules file marking the statement's personal transactions")
 	)
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: import-statement [flags] <statement.pdf>")
@@ -147,6 +152,22 @@ func run() error {
 		}
 	}
 
+	// And the rules run last, over what the invoices did not claim: evidence
+	// first, habit second.
+	classifications := make([]classificationPayload, 0, len(claims))
+	for _, c := range claims {
+		classifications = append(classifications, c.payload())
+	}
+	if *personal != "" {
+		marked, err := markPersonalTransactions(*personal, txs, claims)
+		if err != nil {
+			return err
+		}
+		for _, m := range marked {
+			classifications = append(classifications, m.payload())
+		}
+	}
+
 	if *dryRun {
 		fmt.Print("\n--dry-run: nothing written\n\n")
 		for _, t := range txs {
@@ -174,16 +195,16 @@ func run() error {
 	for start := 0; start < len(txs); start += batchSize {
 		end := min(start+batchSize, len(txs))
 
-		// The claims go with the last batch, whichever batch their own payment
-		// was in: by then every row of this statement is on record, and the
-		// function resolves each claim against the ledger by natural key.
-		var batchClaims []Claim
+		// The classifications go with the last batch, whichever batch their own
+		// transaction was in: by then every row of this statement is on record,
+		// and the function resolves each one against the ledger by natural key.
+		var batch []classificationPayload
 		if end == len(txs) {
-			batchClaims = claims
+			batch = classifications
 		}
 
 		var err error
-		if res, err = postBatch(baseURL, token, sourceName, txs[start:end], batchClaims); err != nil {
+		if res, err = postBatch(baseURL, token, sourceName, txs[start:end], batch); err != nil {
 			return err
 		}
 		inserted += res.Inserted
@@ -193,15 +214,16 @@ func run() error {
 	fmt.Printf("\nImported into %s\n", baseURL)
 	fmt.Printf("  inserted %d\n", inserted)
 	fmt.Printf("  skipped  %d (already on record)\n", skipped)
-	if len(claims) > 0 {
-		fmt.Printf("  claimed  %d business expense(s), %d already claimed\n", res.Claimed, res.ClaimsSkipped)
-		// A deployment predating business_expenses support ignores the claims
-		// and answers about the rows alone. Say so, rather than letting a run
-		// that filed nothing read like one that had nothing to file.
-		if res.Claimed+res.ClaimsSkipped == 0 {
+	if len(classifications) > 0 {
+		fmt.Printf("  classified %d transaction(s), %d already classified\n",
+			res.Classified, res.AlreadyClassified)
+		// A deployment predating classifications ignores them and answers about
+		// the rows alone. Say so, rather than letting a run that filed nothing
+		// read like one that had nothing to file.
+		if res.Classified+res.AlreadyClassified == 0 {
 			fmt.Fprintf(os.Stderr,
-				"warning: the deployed import-transactions recorded none of the %d claim(s) — redeploy it\n",
-				len(claims))
+				"warning: the deployed import-transactions recorded none of the %d classification(s) — redeploy it\n",
+				len(classifications))
 		}
 	}
 	return nil
@@ -266,31 +288,26 @@ func readPages(path, password string) ([][]line, error) {
 }
 
 type importRequest struct {
-	SourceStatement string         `json:"source_statement"`
-	Transactions    []Transaction  `json:"transactions"`
-	Claims          []claimPayload `json:"business_expenses,omitempty"`
+	SourceStatement string                  `json:"source_statement"`
+	Transactions    []Transaction           `json:"transactions"`
+	Classifications []classificationPayload `json:"classifications,omitempty"`
 }
 
 type importResponse struct {
-	OK            bool   `json:"ok"`
-	Received      int    `json:"received"`
-	Inserted      int    `json:"inserted"`
-	Skipped       int    `json:"skipped"`
-	Claimed       int    `json:"claimed"`
-	ClaimsSkipped int    `json:"claims_skipped"`
-	Error         string `json:"error"`
+	OK                bool   `json:"ok"`
+	Received          int    `json:"received"`
+	Inserted          int    `json:"inserted"`
+	Skipped           int    `json:"skipped"`
+	Classified        int    `json:"classified"`
+	AlreadyClassified int    `json:"already_classified"`
+	Error             string `json:"error"`
 }
 
-func postBatch(baseURL, token, source string, txs []Transaction, claims []Claim) (*importResponse, error) {
-	payloads := make([]claimPayload, 0, len(claims))
-	for _, c := range claims {
-		payloads = append(payloads, c.payload())
-	}
-
+func postBatch(baseURL, token, source string, txs []Transaction, classifications []classificationPayload) (*importResponse, error) {
 	body, err := json.Marshal(importRequest{
 		SourceStatement: source,
 		Transactions:    txs,
-		Claims:          payloads,
+		Classifications: classifications,
 	})
 	if err != nil {
 		return nil, err
@@ -413,4 +430,39 @@ func apart(days int) string {
 	default:
 		return fmt.Sprintf("paid %d days earlier", -days)
 	}
+}
+
+// markPersonalTransactions applies a rules file to what the invoices did not
+// claim, and reports what it did — including the two things worth acting on: a
+// rule that recognised nothing, and how much of the statement neither half
+// accounted for.
+func markPersonalTransactions(path string, txs []Transaction, claims []Claim) ([]Personal, error) {
+	rules, err := loadRules(path)
+	if err != nil {
+		return nil, err
+	}
+
+	marked, unused, untouched := markPersonal(rules, txs, claims)
+
+	fmt.Printf("\nMarked %d transaction(s) personal from %s\n", len(marked), filepath.Base(path))
+	byRule := map[string]int{}
+	var order []string
+	for _, m := range marked {
+		name := m.Rule.String()
+		if byRule[name] == 0 {
+			order = append(order, name)
+		}
+		byRule[name]++
+	}
+	for _, name := range order {
+		fmt.Printf("  %-34s %d\n", name, byRule[name])
+	}
+	for _, r := range unused {
+		fmt.Fprintf(os.Stderr, "no longer matches anything: %s\n", r)
+	}
+
+	// Not "unclassified": this run cannot see what was classified before it, and
+	// saying more than it knows is how a books tool starts lying.
+	fmt.Printf("  %d transaction(s) in this statement were neither claimed nor matched by a rule\n", untouched)
+	return marked, nil
 }

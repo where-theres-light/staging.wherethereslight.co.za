@@ -134,7 +134,7 @@ func matchInvoices(invoices []Invoice, txs []Transaction, windowDays int, tolera
 	)
 
 	// Which invoice has taken which payment. A payment can back only one claim —
-	// business_expenses.transaction_id is UNIQUE — so two invoices landing on the
+	// transaction_classifications.transaction_id is UNIQUE — so two invoices on the
 	// same row is a real conflict, not a tie to be broken.
 	takenBy := map[int]int{}
 	claimAt := map[int]int{} // transaction index → position in claims
@@ -363,13 +363,22 @@ type txRef struct {
 	RawReference    string  `json:"raw_reference"`
 }
 
-// claimPayload is one row of `business_expenses`, as the import endpoint expects
-// it. `deductible_amount` is deliberately absent: a claim is only made against a
-// payment of exactly the invoice's total, so the whole payment is claimed, which
-// is what the column means when it is NULL.
-type claimPayload struct {
-	Transaction   txRef  `json:"transaction"`
-	Purpose       string `json:"purpose"`
+// classificationPayload is one row of `transaction_classifications`, as the
+// import endpoint expects it: what a transaction was, and how that was decided.
+//
+// A business one carries the invoice behind it; a personal one carries none of
+// those fields at all, and the endpoint refuses it if it tries (see
+// `personal_claims_nothing` in db/005_classifications.sql).
+//
+// `deductible_amount` is deliberately absent from both: a claim is only made
+// against a payment of the invoice's total, so the whole payment is claimed,
+// which is what the column means when it is NULL.
+type classificationPayload struct {
+	Transaction txRef  `json:"transaction"`
+	Kind        string `json:"kind"`   // business | personal
+	Source      string `json:"source"` // invoice | rule | by hand
+
+	Purpose       string `json:"purpose,omitempty"`
 	Supplier      string `json:"supplier,omitempty"`
 	ExpenseType   string `json:"expense_type,omitempty"`
 	InvoiceNumber string `json:"invoice_number,omitempty"`
@@ -377,31 +386,35 @@ type claimPayload struct {
 	Note          string `json:"note,omitempty"`
 }
 
-func (c Claim) payload() claimPayload {
+func (c Claim) payload() classificationPayload {
 	// A bank charge carries none of the invoice's own detail — it was not
 	// invoiced, and putting the supplier's number on it would say a document
 	// covers it that does not. What it carries is what the charge was for.
 	if c.FeeOn != "" {
-		return claimPayload{
+		return classificationPayload{
 			Transaction: txRef{
 				TransactionDate: c.Transaction.TransactionDate,
 				Description:     c.Transaction.Description,
 				Amount:          c.Transaction.Amount,
 				RawReference:    c.Transaction.RawReference,
 			},
+			Kind:        "business",
+			Source:      "invoice",
 			Purpose:     feePurpose(c.Invoice),
 			ExpenseType: "bank charges",
 			Note:        "bank charge on the payment claimed from " + c.Invoice.File,
 		}
 	}
 
-	return claimPayload{
+	return classificationPayload{
 		Transaction: txRef{
 			TransactionDate: c.Transaction.TransactionDate,
 			Description:     c.Transaction.Description,
 			Amount:          c.Transaction.Amount,
 			RawReference:    c.Transaction.RawReference,
 		},
+		Kind:          "business",
+		Source:        "invoice",
 		Purpose:       c.Invoice.Purpose,
 		Supplier:      c.Invoice.Supplier,
 		ExpenseType:   c.Invoice.Type,
