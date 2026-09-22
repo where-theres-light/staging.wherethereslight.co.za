@@ -14,7 +14,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // secret set the endpoint is closed entirely.
 //
 // Statements overlap, so inserts are ON CONFLICT DO NOTHING against the natural
-// key in db/003_transactions.sql. PostgREST returns only the rows that were
+// key in db/003_books.sql. PostgREST returns only the rows that were
 // actually inserted, which is how the caller is told inserted-vs-skipped.
 //
 // The same request may carry `classifications`: what each transaction was. A
@@ -25,10 +25,15 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // reads the database, so it has no id to send, and a key lookup also resolves
 // against a transaction that arrived with an earlier, overlapping statement.
 // Classifications are ON CONFLICT DO NOTHING too, on the one-per-transaction
-// UNIQUE in db/005_classifications.sql, so re-running an import reclassifies
-// nothing and the monthly totals are left alone — and an existing row is
-// reported rather than overwritten, since the one already there may have been
-// put there by hand.
+// UNIQUE in db/003_books.sql, so re-running an import reclassifies nothing and
+// the monthly totals are left alone — and an existing row is reported rather
+// than overwritten, since the one already there may have been put there by hand.
+//
+// Finally it applies the owner's `personal_rules`, which live in the database
+// rather than beside the importer: they are data the books depend on, and the
+// importer holds no key that could read them. The rules only ever fill in a
+// transaction that has no classification yet, so they run last and change
+// nothing that the invoices just claimed.
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -146,7 +151,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!description) return json({ error: `Row ${i}: missing description` }, 400);
 
     // The running balance lives in raw_reference and is what makes the natural
-    // key unique, so it is required — see db/003_transactions.sql.
+    // key unique, so it is required — see db/003_books.sql.
     const raw = clean(t.raw_reference, 1000);
     if (!raw) return json({ error: `Row ${i}: missing raw_reference` }, 400);
 
@@ -226,7 +231,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (amount >= 0) return json({ error: `Classification ${i}: only money out can be claimed` }, 400);
 
     // What the money was for. Required of a deduction — it cannot be defended
-    // without it (see db/005_classifications.sql).
+    // without it (see db/003_books.sql).
     const purpose = clean(c.purpose, 500);
     if (!purpose) return json({ error: `Classification ${i}: missing purpose` }, 400);
 
@@ -280,9 +285,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { classified, alreadyClassified, failure } = await writeClassifications(supabase, classifications);
   if (failure) return json({ error: failure.error }, failure.status);
 
+  // The rules run over everything still unclassified, not only this statement:
+  // a rule added today should take effect on the ledger already on record, and
+  // it can only ever fill in a blank, so a wider sweep is the safe direction.
+  const { data: applied, error: rulesError } = await supabase.rpc('apply_personal_rules');
+  if (rulesError) {
+    console.error('[import-transactions] rules', rulesError.message);
+    return json({ error: 'Could not apply the personal rules' }, 500);
+  }
+  const summary = Array.isArray(applied) ? applied[0] ?? {} : applied ?? {};
+  const markedPersonal = Number(summary.marked ?? 0);
+  const unclassified = Number(summary.unclassified ?? 0);
+
   console.log(
     `[import-transactions] received=${rows.length} inserted=${inserted} ` +
-    `classifications=${classifications.length} classified=${classified}`,
+    `classifications=${classifications.length} classified=${classified} ` +
+    `marked_personal=${markedPersonal} unclassified=${unclassified}`,
   );
 
   return json({
@@ -292,6 +310,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     skipped: rows.length - inserted,
     classified,
     already_classified: alreadyClassified,
+    marked_personal: markedPersonal,
+    unclassified,
   });
 });
 

@@ -352,7 +352,7 @@ func abs(n int) int {
 // ---------------------------------------------------------------------------
 
 // txRef identifies the payment a claim is made against, by the same natural key
-// the transaction itself is keyed on (db/003_transactions.sql). The importer
+// the transaction itself is keyed on (db/003_books.sql). The importer
 // holds no database key and never learns the row's id — the edge function looks
 // it up, which also means a claim resolves against a payment that was already on
 // record from an earlier, overlapping statement.
@@ -368,7 +368,7 @@ type txRef struct {
 //
 // A business one carries the invoice behind it; a personal one carries none of
 // those fields at all, and the endpoint refuses it if it tries (see
-// `personal_claims_nothing` in db/005_classifications.sql).
+// `personal_claims_nothing` in db/003_books.sql).
 //
 // `deductible_amount` is deliberately absent from both: a claim is only made
 // against a payment of the invoice's total, so the whole payment is claimed,

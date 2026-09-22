@@ -60,7 +60,7 @@ type record struct {
 
 // The statement line this record came from, rebuilt in column order. This is
 // what lands in raw_reference, and it carries the running balance — which is
-// what makes the natural key unique (see db/003_transactions.sql).
+// what makes the natural key unique (see db/003_books.sql).
 func (r record) rawReference() string {
 	parts := []string{r.date, r.description, r.category}
 	for _, s := range []string{r.inString, r.outString, r.feeString, r.balanceStr} {

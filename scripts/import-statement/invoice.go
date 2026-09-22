@@ -4,7 +4,7 @@ package main
 //
 // A statement row says money left the account; it never says what for. That is
 // what the supplier's invoice carries, and it is the thing a deduction cannot be
-// defended without (see `purpose` in db/004_monthly_aggregations.sql).
+// defended without (see `purpose` in db/003_books.sql).
 //
 // Invoices are not parsed, which is the opposite choice to the statement next
 // door. The statement is one bank's fixed layout, so its columns can be read by

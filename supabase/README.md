@@ -4,16 +4,17 @@ The production catalogue, checkout/orders, mailing list, and page-visit metrics
 live in Supabase. The offline `dev` build never touches it — it seeds the same
 catalogue data from `ui/demo.js`.
 
-The schema is **five migrations**: `db/001_catalog.sql` for the public,
+The schema is **three files**: `db/001_catalog.sql` for the public,
 read-only product catalogue, `db/002_sessions.sql` for everything the site
 writes — `sessions` (the hub) plus every table that references it (`orders`,
 `subscriptions`, `page_visits`) and the shared `rate_limits` — and, for the
-books, which the site never touches at all, `db/003_transactions.sql` (the bank
-ledger), `db/004_monthly_aggregations.sql` (the month-by-month summary derived
-from it) and `db/005_classifications.sql` (what each transaction was — business
-or personal — which generalises 004's `business_expenses` into
-`transaction_classifications`). See *Bank transactions* and *Monthly
-aggregations* below.
+books, which the site never touches at all, **`db/003_books.sql`** — the bank
+ledger, what each transaction was (business or personal), the rules that
+recognise the personal ones, and the month-by-month summary derived from all of
+it. Those four tables are one file because they are one subject: every one of
+them hangs off `transactions`, and following a single number from the statement
+to the summary meant holding three files open. See *Bank transactions* and
+*Monthly aggregations* below.
 
 ## Sessions (the hub)
 
@@ -175,7 +176,7 @@ derived from `orders`: an order is what a buyer *owes*, a transaction is money
 that *arrived*, and the two do not line up (fees, transfers, refunds, cash).
 Nothing in the shipped site reads or writes this table.
 
-- **`../db/003_transactions.sql`** — the schema. RLS on with no policies, like
+- **`../db/003_books.sql`** — the schema. RLS on with no policies, like
   everything in `002`, so only the service role touches it.
 - **`functions/import-transactions/`** — the only write path. Validates every
   row and upserts with `ON CONFLICT DO NOTHING`, returning how many rows were
@@ -403,61 +404,67 @@ Drive folder; `note` records which file it was.
 `go test ./scripts/import-statement/` covers the matching rules with synthetic
 invoices and rows, and the readings file with every way it can be wrong.
 
-### Personal transactions — marked by rule
+### Personal transactions — marked by rule, in the database
 
 A business expense is claimed one document at a time, because each one has to be
 substantiated. Personal spending is the opposite shape: there is nothing to
 substantiate, there is far more of it, and what identifies it is the statement's
-own description — Pick n Pay is Pick n Pay every month. So it is marked by rule,
-from a file you keep:
+own words — Pick n Pay is Pick n Pay every month. So it is recognised by pattern,
+and the patterns are rows in **`personal_rules`**:
 
-```json
-{ "rules": [
-  { "category": "Groceries", "note": "household groceries" },
-  { "category": "Fuel",      "note": "private vehicle" },
-  { "match": "wizardz",      "note": "school" }
-] }
+```sql
+INSERT INTO personal_rules (category, note) VALUES
+  ('Groceries', 'household groceries'),
+  ('Fuel',      'private vehicle');
+
+-- A more specific rule, run before the broad one above it.
+INSERT INTO personal_rules (match, category, note, priority) VALUES
+  ('pick n pay', 'Groceries', 'weekly shop', 10);
 ```
 
 `match` is a case-insensitive substring of the description; `category` is the
 bank's own category for the row, matched whole — Capitec categorises most card
 purchases, which makes it the broader lever. Give a rule both and both must
-match. A rule with neither is refused rather than matching the whole statement,
-and so is a misspelt field name, since `"matches"` would silently become exactly
-that. The first rule that matches a transaction wins, so the file reads top to
-bottom.
+match; a rule with neither is refused by a `CHECK`, since it would match the
+entire ledger. `priority` orders them, lowest first, so the specific rule beats
+the general one. `enabled` switches a rule off without losing it or its place.
 
-```bash
-go run . --personal ../../data/personal-rules.json statement.pdf
+They live in the database rather than in a file beside the importer for three
+reasons: they are data the books depend on, they belong to the account rather
+than to whichever machine ran the last import, and the importer holds no key
+that could read them — which is what makes the last piece work.
+
+**The database applies them itself.** `apply_personal_rules()` marks every
+transaction a rule recognises, and `import-transactions` calls it after every
+import, so a rule added today takes effect on the next one with nothing else to
+run. After editing the rules, sweep the ledger already on record:
+
+```sql
+SELECT * FROM apply_personal_rules();
+--  marked | unclassified
+-- --------+--------------
+--      15 |           26
 ```
 
-The rules run **after** the invoices and never touch a payment they claimed: an
-invoice matched to a payment is evidence, a pattern in a description is a habit,
-and where they disagree the evidence wins without argument. The row a rule writes
-carries `source: rule` and nothing else but its note — no purpose, no supplier,
-no invoice — so it can never be mistaken for a claim, and a row someone decided
-by hand (`source: by hand`) can be told from one a pattern decided.
+It only ever fills in a transaction that has **no classification yet**, which is
+the whole of its safety: a rule can never overwrite an invoice-backed claim, and
+never a decision someone made by hand. Evidence first, habit second. The row it
+writes carries `source: rule` and nothing but its note — no purpose, no supplier,
+no invoice — so it can never be mistaken for a claim.
 
-The report is the point of it:
+The import prints what came back:
 
 ```
-Marked 15 transaction(s) personal from personal-rules.json
-  Groceries                          10
-  Fuel                               2
-  …
-  26 transaction(s) in this statement were neither claimed nor matched by a rule
+  claimed  2 transaction(s), 0 already classified
+  personal 15 transaction(s) marked by rule
+  left     26 transaction(s) unclassified, across the ledger
 ```
 
 That last number is what marking personal is *for*. An unclassified transaction
 means either personal or not looked at yet, and only saying which turns "I
-imported September" into "I have been through September". A rule that recognised
-nothing is reported too — a rule for a shop you no longer use is worth knowing
-about. The count is deliberately phrased as "neither claimed nor matched" rather
-than "unclassified": this run cannot see what was classified before it, and
-saying more than it knows is how a books tool starts lying.
-
-The rules file lives in `data/` with the statements and invoices, git-ignored:
-it is a list of where the household shops.
+imported September" into "I have been through September". It counts the whole
+ledger rather than this statement, because the database knows what earlier
+imports classified and the importer does not.
 
 ### Using it
 
@@ -485,9 +492,8 @@ go run . --invoices ../../data/invoices --prepare  sheet.json    ../../data/stat
 go run . --invoices ../../data/invoices --readings readings.json ../../data/statements/account_statement.pdf --dry-run
 go run . --invoices ../../data/invoices --readings readings.json ../../data/statements/account_statement.pdf
 
-# And the personal ones, in the same run.
-go run . --invoices ../../data/invoices --readings readings.json \
-         --personal ../../data/personal-rules.json ../../data/statements/account_statement.pdf
+# The personal ones need nothing here: the database's own rules are applied on
+# every import (see Personal transactions, above).
 ```
 
 `go build -o import-statement .` gives a standalone binary instead, which needs
@@ -500,16 +506,15 @@ the summary boxes printed on page 1 — the quickest way to confirm a clean pars
 `--source NAME` overrides the `source_statement` label (it defaults to the
 filename); `--password-env VAR` reads the password from a different variable; and
 `--match-window N` widens or narrows how far an invoice may sit from its
-payment, `--amount-tolerance N` how much rounding is allowed between an invoice's
-total and what was paid, and `--personal FILE` marks the personal transactions
-from a rules file.
+payment, and `--amount-tolerance N` how much rounding is allowed between an
+invoice's total and what was paid.
 The only dependency is `github.com/ledongthuc/pdf` (BSD, no transitive deps),
 which reads both AES- and RC4-encrypted statements, and reads the invoices too.
 
 ### Setup
 
-1. **Run the migration** — paste `db/003_transactions.sql` into the SQL editor
-   (or `supabase db push`). Idempotent.
+1. **Run the migration** — paste `db/003_books.sql` into the SQL editor (or
+   `supabase db push`). Idempotent.
 2. **Set the import secret.** This function is not called by the browser, so it
    has no origin allowlist; the shared secret is its only authentication, and
    while it is unset the endpoint refuses everything (`503`) — it fails closed,
@@ -574,7 +579,7 @@ is not income — a rule per bank category, a column on `transactions`, or both.
 
 ### Classifications — what each transaction was
 
-**`transaction_classifications`** (`db/005_classifications.sql`) holds one row
+**`transaction_classifications`** (`db/003_books.sql`) holds one row
 per transaction saying what it was: `kind` is `business` or `personal`. The two
 are one fact with two values, and they are mutually exclusive — a payment is one
 or the other, never both — so they share a table, where `transaction_id` being
@@ -656,7 +661,7 @@ moved, like everything else here.
 
 ### How it stays current
 
-Nothing has to be run after an import. **`db/004_monthly_aggregations.sql`** puts
+Nothing has to be run after an import. **`db/003_books.sql`** puts
 statement-level triggers on `transactions` and on `transaction_classifications`
 (insert / update / delete / truncate) that recompute exactly the months affected
 — including *both* months when a transaction's date moves across a boundary, or
@@ -681,16 +686,21 @@ leaving a stale one behind.
 
 ### Setup
 
-1. **Run the migrations** — paste `db/004_monthly_aggregations.sql` and then
-   `db/005_classifications.sql` into the SQL editor (or `supabase db push`),
-   after `db/003_transactions.sql`. Both are idempotent, and each ends by
+1. **Run the migration** — `db/003_books.sql` carries all of it, and ends by
    backfilling every month already in the ledger, so an existing ledger is
-   summarised the moment they run. `005` renames `business_expenses` to
-   `transaction_classifications` in place — the claims already in it carry over
-   as `kind: business`, `source: invoice`.
+   summarised the moment it runs. Idempotent, so re-running it over a database
+   that already has the tables simply recomputes what is already correct.
+
+   To rebuild the books from scratch, drop them first — **deliberately, and
+   never as part of running the file**, since it takes the ledger with it:
+
+   ```sql
+   DROP TABLE IF EXISTS monthly_aggregations, transaction_classifications,
+                        personal_rules, transactions CASCADE;
+   ```
 2. **Classify as you go** — nothing is required up front; add a row for each
    payment you intend to deduct, or let the importer add it from that payment's
-   invoice, and mark the personal ones by rule (*Invoices* and *Personal
+   invoice, and let the rules mark the personal ones (*Invoices* and *Personal
    transactions*, above).
 
 Both tables are RLS on with no policies, like the ledger they derive from. The

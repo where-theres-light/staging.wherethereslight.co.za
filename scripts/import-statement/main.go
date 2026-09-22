@@ -26,9 +26,10 @@
 // only ever claimed against a payment of its total, and the payments are what
 // this program has just read off the statement.
 //
-// With --personal, a rules file marks the other side of the books (personal.go).
-// It runs after the invoices and never touches what they claimed — evidence
-// first, habit second — so what neither accounts for is what is left to look at.
+// The other side of the books — the personal transactions — is not decided here
+// at all. The owner's rules live in the database (`personal_rules`), and the
+// edge function applies them after every import, so this program neither holds
+// them nor needs to read them. It only reports what came back.
 //
 // Environment:
 //
@@ -83,7 +84,6 @@ func run() error {
 		window      = flag.Int("match-window", defaultMatchWindow, "days either side of an invoice's date a payment may fall")
 		tolerance   = flag.Float64("amount-tolerance", defaultTolerance, "rands a payment may differ from an invoice's total by, for rounding")
 		claimFees   = flag.Bool("claim-fees", true, "also claim the bank's charge for making a claimed payment")
-		personal    = flag.String("personal", "", "rules file marking the statement's personal transactions")
 	)
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: import-statement [flags] <statement.pdf>")
@@ -152,20 +152,9 @@ func run() error {
 		}
 	}
 
-	// And the rules run last, over what the invoices did not claim: evidence
-	// first, habit second.
 	classifications := make([]classificationPayload, 0, len(claims))
 	for _, c := range claims {
 		classifications = append(classifications, c.payload())
-	}
-	if *personal != "" {
-		marked, err := markPersonalTransactions(*personal, txs, claims)
-		if err != nil {
-			return err
-		}
-		for _, m := range marked {
-			classifications = append(classifications, m.payload())
-		}
 	}
 
 	if *dryRun {
@@ -215,7 +204,7 @@ func run() error {
 	fmt.Printf("  inserted %d\n", inserted)
 	fmt.Printf("  skipped  %d (already on record)\n", skipped)
 	if len(classifications) > 0 {
-		fmt.Printf("  classified %d transaction(s), %d already classified\n",
+		fmt.Printf("  claimed  %d transaction(s), %d already classified\n",
 			res.Classified, res.AlreadyClassified)
 		// A deployment predating classifications ignores them and answers about
 		// the rows alone. Say so, rather than letting a run that filed nothing
@@ -226,6 +215,11 @@ func run() error {
 				len(classifications))
 		}
 	}
+	// What the rules did, and what neither half has accounted for. The count is
+	// the database's own, over the whole ledger rather than this statement, so
+	// it is the real answer to "how much is left to go through".
+	fmt.Printf("  personal %d transaction(s) marked by rule\n", res.MarkedPersonal)
+	fmt.Printf("  left     %d transaction(s) unclassified, across the ledger\n", res.Unclassified)
 	return nil
 }
 
@@ -294,13 +288,17 @@ type importRequest struct {
 }
 
 type importResponse struct {
-	OK                bool   `json:"ok"`
-	Received          int    `json:"received"`
-	Inserted          int    `json:"inserted"`
-	Skipped           int    `json:"skipped"`
-	Classified        int    `json:"classified"`
-	AlreadyClassified int    `json:"already_classified"`
-	Error             string `json:"error"`
+	OK                bool `json:"ok"`
+	Received          int  `json:"received"`
+	Inserted          int  `json:"inserted"`
+	Skipped           int  `json:"skipped"`
+	Classified        int  `json:"classified"`
+	AlreadyClassified int  `json:"already_classified"`
+	// What the database's own rules did once the rows were in (personal_rules
+	// in db/003_books.sql), and what is still unaccounted for across the ledger.
+	MarkedPersonal int    `json:"marked_personal"`
+	Unclassified   int    `json:"unclassified"`
+	Error          string `json:"error"`
 }
 
 func postBatch(baseURL, token, source string, txs []Transaction, classifications []classificationPayload) (*importResponse, error) {
@@ -430,39 +428,4 @@ func apart(days int) string {
 	default:
 		return fmt.Sprintf("paid %d days earlier", -days)
 	}
-}
-
-// markPersonalTransactions applies a rules file to what the invoices did not
-// claim, and reports what it did — including the two things worth acting on: a
-// rule that recognised nothing, and how much of the statement neither half
-// accounted for.
-func markPersonalTransactions(path string, txs []Transaction, claims []Claim) ([]Personal, error) {
-	rules, err := loadRules(path)
-	if err != nil {
-		return nil, err
-	}
-
-	marked, unused, untouched := markPersonal(rules, txs, claims)
-
-	fmt.Printf("\nMarked %d transaction(s) personal from %s\n", len(marked), filepath.Base(path))
-	byRule := map[string]int{}
-	var order []string
-	for _, m := range marked {
-		name := m.Rule.String()
-		if byRule[name] == 0 {
-			order = append(order, name)
-		}
-		byRule[name]++
-	}
-	for _, name := range order {
-		fmt.Printf("  %-34s %d\n", name, byRule[name])
-	}
-	for _, r := range unused {
-		fmt.Fprintf(os.Stderr, "no longer matches anything: %s\n", r)
-	}
-
-	// Not "unclassified": this run cannot see what was classified before it, and
-	// saying more than it knows is how a books tool starts lying.
-	fmt.Printf("  %d transaction(s) in this statement were neither claimed nor matched by a rule\n", untouched)
-	return marked, nil
 }

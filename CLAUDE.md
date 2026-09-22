@@ -173,9 +173,11 @@ Standalone **Go** programs that are not part of the site build and never ship in
   each with the bank's charge for making that payment, which the parser split off
   the same statement line. Reading an invoice is a judgement — the layout changes
   from company to company — so the program does not make it; matching is all it
-  decides. `--personal <rules>` marks the other side of the books, by pattern
-  rather than by document, so what is left is what has not been looked at. No
-  API, no key. See *Bank transactions* in `supabase/README.md`.
+  decides. The other side of the books is not decided here at all: the owner's
+  `personal_rules` live in the database and the edge function applies them after
+  every import, so the importer neither holds them nor can read them — it only
+  reports how many were marked and how many are still unclassified. No API, no
+  key. See *Bank transactions* in `supabase/README.md`.
 
 Go rather than Deno because the statement table is read by **column position**
 rather than by splitting text, which needs the x coordinate of every fragment —
