@@ -130,7 +130,6 @@ p{margin:0 0 1em;}
 .cart-line .meta{flex:1;}
 .cart-line .t{font-family:var(--serif);font-size:1.1rem;color:var(--green);}
 .cart-line .s{font-size:.78rem;color:var(--ink-soft);}
-.cart-line.cart-discount .t{color:var(--gold);}
 .cart-line .rm{background:none;border:none;color:var(--ink-soft);font-size:.74rem;text-decoration:underline;padding:4px 0;}
 .cart-line .qty{display:flex;align-items:center;gap:6px;margin-top:8px;}
 .cart-line .qbtn{width:24px;height:24px;flex:none;border:1px solid var(--mist);background:#fff;color:var(--green);font-size:1rem;line-height:1;display:flex;align-items:center;justify-content:center;border-radius:2px;}
@@ -223,7 +222,7 @@ p{margin:0 0 1em;}
 .artist-quote cite{display:block;margin-top:16px;font-family:var(--sans);font-style:normal;font-size:.74rem;letter-spacing:.18em;text-transform:uppercase;color:var(--sage);}
 
 /* ---- Gift tags ranges + pricing ---- */
-.tag-ranges{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(20px,2.4vw,32px);margin-bottom:clamp(40px,5vw,64px);}
+.tag-ranges{display:grid;grid-template-columns:repeat(2,1fr);gap:clamp(20px,2.4vw,32px);margin-bottom:clamp(40px,5vw,64px);}
 .tag-range{border:1px solid var(--mist);background:#fff;padding:clamp(26px,3vw,38px);display:flex;flex-direction:column;gap:12px;}
 .tag-range h3{color:var(--green);}
 .tag-range p{color:var(--ink-soft);font-size:.95rem;margin:0;}

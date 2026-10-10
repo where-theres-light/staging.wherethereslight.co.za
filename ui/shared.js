@@ -147,19 +147,7 @@ const Cart = {
   step(i,d){ const items=this.read(); if(!items[i]) return; const q=(items[i].qty||1)+d;
     if(q<=0) items.splice(i,1); else items[i].qty=Math.min(99,q); this.write(items); },
   count(){ return this.read().reduce((s,x)=>s+(x.qty||1),0); },
-  /* Bulk gift-tag pricing: every complete 10 single gift tags is charged at the
-     gifttags 'mix10' set price instead of 10 × the single price. Returns the
-     amount to knock off the line-item subtotal (0 when fewer than 10). */
-  giftDiscount(){
-    const giftIds = new Set(productsIn('gifttags').map(p=>p.id));
-    const n = this.read().filter(x=>x.ref && x.ref.t==='v' && x.ref.k==='single' && giftIds.has(x.ref.p)).reduce((s,x)=>s+(x.qty||1),0);
-    const tiers = (CATEGORIES.gifttags && CATEGORIES.gifttags.tiers) || [];
-    const per10  = (tiers.find(t=>t.key==='mix10')  || {}).price;
-    const single = (tiers.find(t=>t.key==='single') || {}).price;
-    if(n < 10 || per10==null || single==null) return 0;
-    return Math.max(0, Math.floor(n/10) * (10*single - per10));
-  },
-  total(){ return this.read().reduce((s,x)=>s+x.price*(x.qty||1),0) - this.giftDiscount(); },
+  total(){ return this.read().reduce((s,x)=>s+x.price*(x.qty||1),0); },
   open(){ document.getElementById('cartScrim')?.classList.add('open'); document.getElementById('cartDrawer')?.classList.add('open'); },
   close(){ document.getElementById('cartScrim')?.classList.remove('open'); document.getElementById('cartDrawer')?.classList.remove('open'); },
   render(){
@@ -168,7 +156,6 @@ const Cart = {
     const items=this.read();
     if(!items.length){ body.innerHTML='<div class="cart-empty">Your cart is quiet.<br>Find a piece worth keeping.</div>'; }
     else{
-      const disc=this.giftDiscount();
       body.innerHTML=items.map((it,i)=>{
         const q=it.qty||1, single=it.ref&&it.ref.k==='orig';   // originals are one-of-a-kind
         const ctl = single
@@ -179,10 +166,7 @@ const Cart = {
         <div class="meta"><div class="t">${it.title}</div><div class="s">${it.edition}</div>
         ${ctl}</div>
         <div class="t" style="font-size:1rem">${ZAR(it.price*q)}</div></div>`;
-      }).join('')
-        + (disc>0 ? `<div class="cart-line cart-discount">
-        <div class="meta"><div class="t">Gift-tag bulk discount</div><div class="s">Every 10 tags priced as a set of 10</div></div>
-        <div class="t" style="font-size:1rem">−${ZAR(disc)}</div></div>` : '');
+      }).join('');
     }
     const tot=document.getElementById('cartTotal'); if(tot) tot.textContent=ZAR(this.total());
     const co=document.getElementById('checkoutBtn'); if(co) co.style.display=items.length?'':'none';

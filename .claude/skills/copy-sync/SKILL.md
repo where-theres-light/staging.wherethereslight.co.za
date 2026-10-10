@@ -73,11 +73,11 @@ Field → catalog mapping for a collection page:
 | its description / artist quote | `products[].blurb` |
 | price lines (`From R1500`, `R 360`, …) | `products[].price` / `products[].original_price` |
 
-**Only the gift-tags page has static card copy in HTML:** the three range cards
-(`Water-colour range`, `Signature monochrome`, `Stationery staples`) and the
+**Only the gift-tags page has static card copy in HTML:** the two range cards
+(`Signature monochrome`, `Stationery staples`) and the
 "The designs" heading are hard-coded in `ui/gift-tags.html`. Those `CARD` blocks
-in the doc map to that markup. The purchasable tiers (`Singles`, `Mono set of 5`,
-`Mixed set of 10`) and the individual tag designs are catalog data.
+in the doc map to that markup. The purchasable tiers (`Singles`, `Mono set of 5`)
+and the individual tag designs are catalog data.
 
 The **home page** (`ui/index.html`) is static HTML end to end — its hero,
 welcome, about, and "three ways to own a piece" copy all live in the markup.
@@ -127,7 +127,7 @@ slot; don't treat the marker itself as literal text:
   `% the footer is the same on all the pages %`, `% column 1 %`). **Ignore** it;
   it's not copy and not an emphasis marker.
 - **`**bold**`** — markdown bold, used for sub-headings inside a column or
-  section (`**Shop**`, `**Water-colour range**`). Maps to the corresponding
+  section (`**Shop**`, `**Signature monochrome**`). Maps to the corresponding
   `<h3>`/`<h4>`/`<strong>` in the target, not literal asterisks.
 - **Markdown `#` heading** — a page boundary inside the doc (see §2).
 

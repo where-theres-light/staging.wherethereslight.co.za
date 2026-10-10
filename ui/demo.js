@@ -40,7 +40,7 @@
  * ========================================================================== */
 
 const DEMO = {
-  version: 2,
+  version: 3,
 
   /* Collection-page metadata. Gift tags also carry set-pricing `tiers`. */
   categories: {
@@ -61,8 +61,7 @@ const DEMO = {
       intro: 'We are very proud to be collaborating with Koue Koffie Boeke on our range of gift tags. Our range includes cards perfect for all ages and can be purchased individually or in sets.',
       tiers: [
         { key: 'single', name: 'Singles',           sub: 'Individual gift tag',            price: 15 },
-        { key: 'mono5',  name: 'Mono set of 5',      sub: 'Signature monochrome',           price: 50 },
-        { key: 'mix10',  name: 'Mixed set of 10',    sub: 'Colour · water-colour range',    price: 95 }
+        { key: 'mono5',  name: 'Mono set of 5',      sub: 'Signature monochrome',           price: 50 }
       ]
     }
   },
@@ -185,15 +184,6 @@ const DEMO = {
     },
 
     /* ── Gift tags (designs; sets are priced via categories.gifttags.tiers) ── */
-    { id: 'gifttag-icecream', category: 'gifttags', title: 'Ice-Cream Cone', range: 'Water-colour', image: 'assets/tag-icecream.jpg', price: 15 },
-    { id: 'gifttag-boots',    category: 'gifttags', title: 'Garden Boots',   range: 'Water-colour', image: 'assets/tag-boots.jpg',    price: 15 },
-    { id: 'gifttag-mouse',    category: 'gifttags', title: 'Party Mouse',    range: 'Water-colour', image: 'assets/tag-mouse.jpg',    price: 15 },
-    { id: 'gifttag-dots',     category: 'gifttags', title: 'Happy Dots',     range: 'Water-colour', image: 'assets/tag-dots.jpg',     price: 15 },
-    { id: 'gifttag-penguins', category: 'gifttags', title: 'Party Penguins', range: 'Colour',       image: 'assets/tag-penguins.jpg', price: 15 },
-    { id: 'gifttag-rocket',   category: 'gifttags', title: 'Rocket',         range: 'Colour',       image: 'assets/tag-rocket.jpg',   price: 15 },
-    { id: 'gifttag-octopus',  category: 'gifttags', title: 'Octopus',        range: 'Colour',       image: 'assets/tag-octopus.jpg',  price: 15 },
-    { id: 'gifttag-bunny',    category: 'gifttags', title: 'Meadow Bunny',   range: 'Colour',       image: 'assets/tag-bunny.jpg',    price: 15 },
-    { id: 'gifttag-blossom',  category: 'gifttags', title: 'Cherry Blossom', range: 'Colour',       image: 'assets/tag-blossom.jpg',  price: 15 },
     { id: 'gifttag-roses',    category: 'gifttags', title: 'Rose Garden',    range: 'Monochrome',   image: 'assets/tag-roses.jpg',    price: 15 },
     { id: 'gifttag-dahlias',  category: 'gifttags', title: 'Dahlias',        range: 'Monochrome',   image: 'assets/tag-dahlias.jpg',  price: 15 },
     { id: 'gifttag-town',     category: 'gifttags', title: 'Townscape',      range: 'Monochrome',   image: 'assets/tag-town.jpg',     price: 15 },

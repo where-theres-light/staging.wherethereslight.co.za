@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Illustrated Gift Tags — Hand-drawn Tags &amp; Sets | Where There's Light</title>
-<meta name="description" content="Hand-illustrated gift tags on cardstock, in collaboration with Koue Koffie Boeke — water-colour, colour and signature monochrome ranges, bought singly or in sets of 5 and 10.">
+<meta name="description" content="Hand-illustrated gift tags on cardstock, in collaboration with Koue Koffie Boeke — signature monochrome designs, bought singly or in sets of 5.">
 <link rel="canonical" href="https://wherethereslight.co.za/gift-tags.html">
 <meta name="author" content="Laurita le Roux">
 <meta name="theme-color" content="#2D3644">
@@ -12,7 +12,7 @@
 <meta property="og:site_name" content="Where There's Light">
 <meta property="og:locale" content="en_ZA">
 <meta property="og:title" content="Illustrated Gift Tags — Hand-drawn Tags &amp; Sets | Where There's Light">
-<meta property="og:description" content="Hand-illustrated gift tags on cardstock, in collaboration with Koue Koffie Boeke — water-colour, colour and signature monochrome ranges, bought singly or in sets of 5 and 10.">
+<meta property="og:description" content="Hand-illustrated gift tags on cardstock, in collaboration with Koue Koffie Boeke — signature monochrome designs, bought singly or in sets of 5.">
 <meta property="og:url" content="https://wherethereslight.co.za/gift-tags.html">
 <meta property="og:image" content="https://wherethereslight.co.za/assets/tag-town.jpg">
 <meta name="twitter:card" content="summary_large_image">
@@ -71,10 +71,6 @@
   </section>
   <section class="coll-body wrap">
     <div class="tag-ranges">
-      <div class="tag-range">
-        <h3>Water-colour range</h3>
-        <p>Perfect for the littlies — soft, colourful tags full of character for the youngest gift-givers and receivers.</p>
-      </div>
       <div class="tag-range">
         <h3>Signature monochrome</h3>
         <p>Our signature monochrome sets are a great way to personalise and spruce up that special gift.</p>
@@ -151,7 +147,7 @@ document.getElementById('tagRows').innerHTML=tiers.map(t=>`
   <div class="price-row">
     <div class="info"><div class="nm">${t.name}</div><div class="sub">${t.sub} · printed on cardstock</div></div>
     <div class="pr">${ZAR(t.price)}</div>
-    ${t.key==='single' || t.key==='mix10'
+    ${t.key==='single'
       ? `<div class="btn btn-disabled" aria-disabled="true">Select below</div>`
       : `<button class="btn btn-ghost" onclick="Cart.add({id:'gifttag-${t.key}',title:'Gift Tags — ${t.name}',img:R('logo','assets/logo.svg'),edition:'${t.sub}',price:${t.price},ref:{t:'t',c:'gifttags',k:'${t.key}'}})">Add to cart</button>`}
   </div>`).join('');
