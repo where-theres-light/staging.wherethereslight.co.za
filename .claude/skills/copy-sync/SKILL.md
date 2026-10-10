@@ -71,7 +71,7 @@ Field → catalog mapping for a collection page:
 | its place line (e.g. `Bellville, Cape Town`) | `products[].place` |
 | its year | `products[].year` |
 | its description / artist quote | `products[].blurb` |
-| price lines (`From R1500`, `R 360`, …) | `product_variants[].price` |
+| price lines (`From R1500`, `R 360`, …) | `products[].price` / `products[].original_price` |
 
 **Only the gift-tags page has static card copy in HTML:** the three range cards
 (`Water-colour range`, `Signature monochrome`, `Stationery staples`) and the

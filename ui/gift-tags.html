@@ -156,15 +156,14 @@ document.getElementById('tagRows').innerHTML=tiers.map(t=>`
       : `<button class="btn btn-ghost" onclick="Cart.add({id:'gifttag-${t.key}',title:'Gift Tags — ${t.name}',img:R('logo','assets/logo.svg'),edition:'${t.sub}',price:${t.price},ref:{t:'t',c:'gifttags',k:'${t.key}'}})">Add to cart</button>`}
   </div>`).join('');
 
-// Designs are the gift-tag products; each is sold as a single variant.
+// Designs are the gift-tag products; each is sold singly at its own price.
 const designs = productsIn('gifttags');
 document.getElementById('tagGrid').innerHTML=designs.map(d=>{
-  const single = (d.variants||[]).find(v=>v.kind==='single') || {price:0, sub:''};
   return `
   <figure class="tag-card">
     <div class="imgwrap"><img src="${d.image}" alt="${d.title} gift tag" loading="lazy"></div>
-    <div class="cn"><div><div class="nm">${d.title}</div><div class="rng">${d.range}</div></div><div class="pr">${ZAR(single.price)}</div></div>
-    <button class="add" onclick="Cart.add({id:'${d.id}',title:'Gift Tag — ${d.title}',img:'${d.image}',edition:'${d.range} · single, on cardstock',price:${single.price},ref:{t:'v',p:'${d.id}',k:'single'}})">Add single</button>
+    <div class="cn"><div><div class="nm">${d.title}</div><div class="rng">${d.range}</div></div><div class="pr">${ZAR(d.price ?? 0)}</div></div>
+    <button class="add" onclick="Cart.add({id:'${d.id}',title:'Gift Tag — ${d.title}',img:'${d.image}',edition:'${d.range} · single, on cardstock',price:${d.price ?? 0},ref:{t:'v',p:'${d.id}',k:'single'}})">Add single</button>
   </figure>`;
 }).join('');
 });

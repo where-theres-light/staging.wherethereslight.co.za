@@ -151,16 +151,30 @@ Deno.serve(async (req: Request): Promise<Response> => {
     let title = '';
 
     if (ref?.t === 'v') {
-      const { data } = await supabase.from('product_variants')
-        .select('price, status, name, products(title, category_slug)')
-        .eq('product_id', ref.p).eq('key', ref.k).maybeSingle();
-      if (!data)                  return json({ error: 'Unknown item' }, 400);
-      const pTitle = (data as any).products?.title ?? ref.p;
-      if (data.status === 'sold') return json({ error: `${pTitle} is sold` }, 409);
-      if (data.price == null)     return json({ error: `${pTitle} is not for sale online` }, 409);
-      price = Number(data.price);
-      title = `${pTitle} — ${data.name}`;
-      if ((data as any).products?.category_slug === 'gifttags' && ref.k === 'single') giftQty += qty;
+      // A product's options are flat columns: 'print' (artworks) and 'single'
+      // (gift tags) are `price`; 'orig' is `original_price` / `original_status`.
+      const { data: p } = await supabase.from('products')
+        .select('title, category_slug, price, original_price, original_status')
+        .eq('id', ref.p).maybeSingle();
+      if (!p) return json({ error: 'Unknown item' }, 400);
+      const isGift = p.category_slug === 'gifttags';
+      let name: string;
+      let status: string | null = null;
+      if (ref.k === 'print' && !isGift) {
+        price = p.price; name = 'Fine-art print';
+      } else if (ref.k === 'single' && isGift) {
+        price = p.price; name = 'Single gift tag';
+      } else if (ref.k === 'orig' && p.original_status) {
+        price = p.original_price; status = p.original_status;
+        name = p.category_slug === 'amelias' ? 'Original illustration' : 'Original artwork';
+      } else {
+        return json({ error: 'Unknown item' }, 400);
+      }
+      if (status === 'sold') return json({ error: `${p.title} is sold` }, 409);
+      if (price == null)     return json({ error: `${p.title} is not for sale online` }, 409);
+      price = Number(price);
+      title = `${p.title} — ${name}`;
+      if (isGift) giftQty += qty;
     } else if (ref?.t === 't') {
       const { data } = await supabase.from('category_tiers')
         .select('price, name').eq('category_slug', ref.c).eq('key', ref.k).maybeSingle();

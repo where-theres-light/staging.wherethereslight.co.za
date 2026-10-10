@@ -44,8 +44,7 @@ The catalogue is **public, read-only** data, served **straight from the Supabase
 REST API** (PostgREST) — no edge function.
 
 - **`../db/001_catalog.sql`** — schema + seed for the catalogue
-  (`categories`, `category_tiers`, `print_editions`, `products`,
-  `product_variants`). Each table has RLS enabled with a permissive `SELECT`
+  (`categories`, `category_tiers`, `products`). Each table has RLS enabled with a permissive `SELECT`
   policy and `SELECT` granted to `anon`/`authenticated`; no write access.
 - **`ui/shared.js`** (inside the `//online` block) fetches the tables directly
   with the publishable key and reshapes them into the `demo.js` shape.

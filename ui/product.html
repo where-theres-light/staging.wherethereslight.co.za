@@ -283,14 +283,14 @@ withCatalog(()=>{
   document.getElementById('pEyebrow').textContent = piece.cat==='amelias' ? "Amelia's House · miniature interior" : 'Hand-drawn townscape';
   document.getElementById('pBlurb').textContent=piece.blurb;
 
-  // build edition options
+  // build purchase options: the print (when sold online) and the original
   const optsEl=document.getElementById('opts');
-  const EDS = piece.printPrice!=null
-    ? [
-        {key:'print', name:'Fine-art print', sub:`Unframed · ${piece.size||''}${piece.printPrice===170?' · excl. shipping':''}`, price:piece.printPrice},
-        {key:'orig',  name: piece.cat==='amelias' ? 'Original illustration' : 'Original artwork', sub:'Unframed · one of a kind', price:piece.original.price}
-      ]
-    : EDITIONS;
+  const EDS = [
+    ...(piece.printPrice!=null
+      ? [{key:'print', name:'Fine-art print', sub:`Unframed · ${piece.size||''}${piece.printPrice===170?' · excl. shipping':''}`, price:piece.printPrice}]
+      : []),
+    {key:'orig', name: piece.cat==='amelias' ? 'Original illustration' : 'Original artwork', sub:'Unframed · one of a kind', price:piece.original.price}
+  ];
   const opts=EDS.map(e=>{
     const isOrig=e.key==='orig';
     const price=isOrig?piece.original.price:e.price;
@@ -313,9 +313,9 @@ withCatalog(()=>{
     document.getElementById('addBtn').textContent='Add to cart';
   }
   document.querySelectorAll('.opt').forEach(el=>el.addEventListener('click',()=>select(+el.dataset.i)));
-  // default: first non-sold, prefer A3
-  const def=opts.findIndex(o=>o.key==='a3'&&!o.sold);
-  select(def>=0?def:opts.findIndex(o=>!o.sold));
+  // default: first non-sold
+  const def=opts.findIndex(o=>!o.sold);
+  if(def>=0) select(def);
   function addToCart(){
     if(selected==null) return;
     const e=opts[selected];

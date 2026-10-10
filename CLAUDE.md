@@ -135,11 +135,12 @@ a preview seed, not a second source of truth, so it is free to lag the table.
 
 ### Product data model
 
-`demo.js` (and the future Supabase table) store `categories`, `editions`, and
-`products`. A **product** is one catalogue item; each carries a **`variants`**
-array — the purchasable options that hold price and stock (`print` / `original`
-/ `single` / …). This one shape covers townscapes, miniatures and gift tags, and
-maps onto `products` + `product_variants` tables. See the header of `demo.js` for
+`demo.js` (and the Supabase tables) store `categories` and `products`. A
+**product** is one catalogue item, and its purchasable options are flat columns
+on it: `price` (the print for artworks, the single for gift tags) plus
+`originalPrice` / `originalStatus` for one-of-a-kind originals. The cart
+addresses an option by key (`print` / `orig` / `single`). This one shape covers
+townscapes, miniatures and gift tags, and maps onto the `products` table. See the header of `demo.js` for
 the full field reference.
 
 ## Source layout (`ui/`)

@@ -3,7 +3,7 @@
 const R = (id, path) => (window.__resources && window.__resources[id]) || path;
 
 /* ---------- Catalog data source ----------
-   The catalog (products, editions, categories) is authoritative in a Supabase
+   The catalog (products, categories) is authoritative in a Supabase
    table in production; in the offline dev build it is seeded into localStorage
    by demo.js. Either way it is read from localStorage under `wtl_catalog`, so
    the render path below is identical for both builds. */
@@ -11,31 +11,28 @@ const CATALOG_KEY = 'wtl_catalog';
 
 let DATA = (() => {
   try { return JSON.parse(localStorage.getItem(CATALOG_KEY)); } catch (e) { return null; }
-})() || { categories: {}, editions: [], products: [] };
+})() || { categories: {}, products: [] };
 
-/* Map a product (products/variants model) onto the legacy piece shape the
+/* Map a product (flat products model) onto the legacy piece shape the
    renderers still consume — a thin adapter so the data model can be the single
    source of truth without rewriting product.html / renderCollection yet. */
 function toLegacyPiece(p) {
-  const print = (p.variants || []).find(v => v.kind === 'print');
-  const orig  = (p.variants || []).find(v => v.kind === 'original');
   return {
     id: p.id, title: p.title, place: p.place, year: p.year,
     img: p.image, large: p.imageLarge || p.image,
     orientation: p.orientation, cat: p.category, size: p.size,
     blurb: p.blurb,
-    printPrice: print ? print.price : null,
-    original: orig ? { price: orig.price, status: orig.status } : { price: null, status: 'sold' },
-    fromPrint: print ? print.price : (orig ? orig.price : null)
+    printPrice: p.price ?? null,
+    original: p.originalStatus ? { price: p.originalPrice ?? null, status: p.originalStatus } : { price: null, status: 'sold' },
+    fromPrint: p.price ?? p.originalPrice ?? null
   };
 }
 
 /* Legacy-compatible views, rebuilt whenever DATA changes. Gift tags render from
    their own page data, so they are excluded from CATALOG. */
-let CATALOG, EDITIONS, CATEGORIES;
+let CATALOG, CATEGORIES;
 function rebuildViews() {
   CATEGORIES = DATA.categories || {};
-  EDITIONS   = DATA.editions   || [];
   CATALOG    = (DATA.products || [])
     .slice()
     .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
@@ -58,13 +55,12 @@ async function refreshCatalog() {
   const rest = SUPABASE_URL + '/rest/v1';
   const headers = { apikey: SUPABASE_ANON, Authorization: 'Bearer ' + SUPABASE_ANON };
   try {
-    const [cRes, eRes, pRes] = await Promise.all([
+    const [cRes, pRes] = await Promise.all([
       fetch(`${rest}/categories?select=slug,title,eyebrow,intro,empty,category_tiers(key,name,sub,price)&order=sort&category_tiers.order=sort`, { headers }),
-      fetch(`${rest}/print_editions?select=key,kind,name,sub,price&order=sort`, { headers }),
-      fetch(`${rest}/products?select=id,category_slug,title,place,year,size,orientation,tag_range,blurb,image,image_large,sort,product_variants(key,kind,name,sub,price,status)&order=sort&product_variants.order=sort`, { headers }),
+      fetch(`${rest}/products?select=id,category_slug,title,place,year,size,orientation,tag_range,blurb,image,image_large,sort,price,original_price,original_status&order=sort`, { headers }),
     ]);
-    if (!cRes.ok || !eRes.ok || !pRes.ok) return;
-    const [cRows, eRows, pRows] = await Promise.all([cRes.json(), eRes.json(), pRes.json()]);
+    if (!cRes.ok || !pRes.ok) return;
+    const [cRows, pRows] = await Promise.all([cRes.json(), pRes.json()]);
     DATA = {
       categories: Object.fromEntries(cRows.map(c => [c.slug, {
         title: c.title, eyebrow: c.eyebrow, intro: c.intro,
@@ -72,13 +68,12 @@ async function refreshCatalog() {
         ...(c.category_tiers && c.category_tiers.length
           ? { tiers: c.category_tiers.map(t => ({ ...t, price: money(t.price) })) } : {}),
       }])),
-      editions: eRows.map(e => ({ ...e, price: money(e.price) })),
       products: pRows.map(p => ({
         id: p.id, category: p.category_slug, title: p.title,
         place: p.place, year: p.year, size: p.size, orientation: p.orientation,
         range: p.tag_range, blurb: p.blurb, image: p.image, imageLarge: p.image_large,
-        sort: p.sort,
-        variants: (p.product_variants || []).map(v => ({ ...v, price: money(v.price) })),
+        sort: p.sort, price: money(p.price),
+        originalPrice: money(p.original_price), originalStatus: p.original_status,
       })),
     };
     localStorage.setItem(CATALOG_KEY, JSON.stringify(DATA));
@@ -93,7 +88,7 @@ const ZAR = n => 'R ' + n.toLocaleString('en-ZA');
 const byId = id => CATALOG.find(p => p.id === id);
 const byCat = cat => CATALOG.filter(p => p.cat === cat);
 
-/* Products in a category, in the raw (products/variants) model — for pages that
+/* Products in a category, in the raw (flat products) model — for pages that
    render the new shape directly rather than the legacy piece view. */
 const productsIn = cat => (DATA.products || [])
   .filter(p => p.category === cat)
